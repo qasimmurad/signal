@@ -1,12 +1,13 @@
 /**
  * Five one-handed signs, scored on the same features the ASL fingerspelling coach uses: total bend
- * per finger, thumb position scores in the palm frame, the palm normal and fingertip contacts.
+ * per finger, thumb geometry in the palm frame, the palm normal and fingertip contacts.
  * Each score is 0..1 and soft, so a sign degrades gracefully instead of flickering.
  */
 import type { ExtractedFeatures } from '../vision/features';
 import { smooth } from '../vision/landmarks';
 
 export type SignName = 'STOP' | 'HOLD' | 'GO' | 'SLOW' | 'POINT';
+type Finger = 'index' | 'middle' | 'ring' | 'pinky';
 
 export interface SignSpec {
   name: SignName;
@@ -15,60 +16,77 @@ export interface SignSpec {
   hand: string;
   /** what the robot does */
   robot: string;
-  /** consecutive frames before it fires */
-  stableFrames: number;
+  /** how many of the last WINDOW frames must agree before it fires */
+  need: number;
   cooldownMs: number;
   score(f: ExtractedFeatures): number;
 }
 
-const ext = (f: ExtractedFeatures, k: 'index' | 'middle' | 'ring' | 'pinky') => 1 - smooth(f.bend[k], 55, 105);
-const cur = (f: ExtractedFeatures, k: 'index' | 'middle' | 'ring' | 'pinky') => smooth(f.bend[k], 110, 165);
-const thumbExt = (f: ExtractedFeatures) => 1 - smooth(f.thumb.bend, 40, 85);
+/** frames of history the stabilizer votes over (about a quarter second at 30 fps) */
+export const WINDOW = 8;
+
+const ext = (f: ExtractedFeatures, k: Finger) => 1 - smooth(f.bend[k], 65, 120);
+const cur = (f: ExtractedFeatures, k: Finger) => smooth(f.bend[k], 95, 150);
+const fingersOpen = (f: ExtractedFeatures) => Math.min(ext(f, 'index'), ext(f, 'middle'), ext(f, 'ring'), ext(f, 'pinky'));
+const fingersCurled = (f: ExtractedFeatures) => Math.min(cur(f, 'index'), cur(f, 'middle'), cur(f, 'ring'), cur(f, 'pinky'));
+const thumbExt = (f: ExtractedFeatures) => 1 - smooth(f.thumb.bend, 60, 110);
 const pinched = (f: ExtractedFeatures) => 1 - smooth(f.touch['thumb-index'], 0.3, 0.5);
-const facingCamera = (f: ExtractedFeatures) => smooth(-f.palmNormal.z, 0.1, 0.45);
-const min4 = (a: number, b: number, c: number, d: number) => Math.min(a, b, c, d);
+/** palm or back of the hand squarely toward the lens; either side counts, so handedness cannot break STOP */
+const flatToCamera = (f: ExtractedFeatures) => smooth(Math.abs(f.palmNormal.z), 0.12, 0.45);
+
+/**
+ * Thumbs up, from geometry rather than a learned score: the thumb is straight, runs up the palm
+ * axis, and its tip is the highest point of the hand, above every curled fingertip.
+ */
+export function thumbUp(f: ExtractedFeatures): number {
+  const topFinger = Math.max(f.tipsV.index, f.tipsV.middle, f.tipsV.ring, f.tipsV.pinky);
+  const above = smooth(f.thumbLocal.v - topFinger, 0.0, 0.25);
+  const along = smooth(f.thumbDir.v, 0.4, 0.75);
+  return thumbExt(f) * Math.max(along * above, 0.8 * (f.thumb.scores.extended_up ?? 0));
+}
 
 export const SIGNS: readonly SignSpec[] = [
   {
-    name: 'STOP', emoji: '✋', hand: 'flat palm toward the camera', robot: 'freezes, light red, needs GO', stableFrames: 3, cooldownMs: 1200,
-    score: (f) => min4(ext(f, 'index'), ext(f, 'middle'), ext(f, 'ring'), ext(f, 'pinky')) * facingCamera(f),
+    name: 'STOP', emoji: '✋', hand: 'flat hand toward the camera', robot: 'freezes, light red, needs GO', need: 3, cooldownMs: 1200,
+    score: (f) => fingersOpen(f) * flatToCamera(f),
   },
   {
-    name: 'HOLD', emoji: '✊', hand: 'fist', robot: 'pauses where it is', stableFrames: 6, cooldownMs: 1200,
-    score: (f) => min4(cur(f, 'index'), cur(f, 'middle'), cur(f, 'ring'), cur(f, 'pinky')) * (1 - 0.9 * thumbUp(f)),
+    name: 'HOLD', emoji: '✊', hand: 'fist', robot: 'pauses where it is', need: 5, cooldownMs: 1200,
+    score: (f) => fingersCurled(f) * (1 - thumbUp(f)),
   },
   {
-    name: 'GO', emoji: '👍', hand: 'thumbs up', robot: 'resumes', stableFrames: 6, cooldownMs: 1200,
-    score: (f) => min4(cur(f, 'index'), cur(f, 'middle'), cur(f, 'ring'), cur(f, 'pinky')) * thumbUp(f),
+    name: 'GO', emoji: '👍', hand: 'thumbs up', robot: 'resumes', need: 5, cooldownMs: 1200,
+    score: (f) => fingersCurled(f) * thumbUp(f),
   },
   {
-    name: 'SLOW', emoji: '🤏', hand: 'thumb and index pinched', robot: 'runs at a third of its speed', stableFrames: 6, cooldownMs: 1200,
+    name: 'SLOW', emoji: '🤏', hand: 'thumb and index pinched', robot: 'runs at a third of its speed', need: 5, cooldownMs: 1200,
     score: (f) => pinched(f) * (1 - 0.6 * ext(f, 'index')),
   },
   {
-    name: 'POINT', emoji: '☝️', hand: 'point at a part', robot: 'packs that one next', stableFrames: 4, cooldownMs: 0,
+    name: 'POINT', emoji: '☝️', hand: 'point at a part', robot: 'packs that one next', need: 4, cooldownMs: 0,
     score: (f) => ext(f, 'index') * Math.min(cur(f, 'middle'), cur(f, 'ring'), cur(f, 'pinky')) * (1 - pinched(f)),
   },
 ];
 
-/** thumb clearly extended and sticking up the palm axis, past the knuckle line */
-function thumbUp(f: ExtractedFeatures): number {
-  const up = Math.max(f.thumb.scores.extended_up ?? 0, smooth(f.thumbLocal.v, 1.0, 1.35));
-  return thumbExt(f) * smooth(up, 0.25, 0.65);
+export interface Classification {
+  /** the sign we are confident in, or null */
+  name: SignName | null;
+  /** the best-scoring sign even when not confident, for coaching the operator */
+  best: SignName;
+  score: number;
+  scores: Record<SignName, number>;
 }
 
-export interface Classification { name: SignName; score: number; scores: Record<SignName, number> }
-
-export function classify(f: ExtractedFeatures, minScore = 0.5, margin = 0.12): Classification | null {
+export function classify(f: ExtractedFeatures, minScore = 0.45, margin = 0.1): Classification {
   const scores = {} as Record<SignName, number>;
-  let best: SignSpec | null = null, bs = -1, second = -1;
+  let best: SignSpec = SIGNS[0], bs = -1, second = -1;
   for (const s of SIGNS) {
     const v = s.score(f);
     scores[s.name] = v;
     if (v > bs) { second = bs; bs = v; best = s; } else if (v > second) second = v;
   }
-  if (!best || bs < minScore || bs - second < margin) return null;
-  return { name: best.name, score: bs, scores };
+  const confident = bs >= minScore && bs - second >= margin;
+  return { name: confident ? best.name : null, best: best.name, score: bs, scores };
 }
 
 export const SPEC: Record<SignName, SignSpec> = Object.fromEntries(SIGNS.map((s) => [s.name, s])) as Record<SignName, SignSpec>;

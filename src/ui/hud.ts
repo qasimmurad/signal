@@ -49,7 +49,11 @@ export class Hud {
       li.classList.toggle('active', sf.active === name);
       if (sf.fired === name) { li.classList.add('fired'); setTimeout(() => li.classList.remove('fired'), 600); }
     }
-    this.camSign.textContent = sf.active ? (sf.active === 'POINT' ? '☝️ THAT ONE' : `${SIGNS.find((s) => s.name === sf.active)!.emoji} ${sf.active}`) : '';
+    const label = (n: SignName) => (n === 'POINT' ? '☝️ THAT ONE' : `${SIGNS.find((s) => s.name === n)!.emoji} ${n}`);
+    if (sf.active) this.camSign.textContent = label(sf.active);
+    else if (sf.nearest && sf.nearest.score > 0.2) this.camSign.textContent = `almost ${label(sf.nearest.name)} · ${Math.round(sf.nearest.score * 100)}%`;
+    else this.camSign.textContent = sf.features ? 'no sign' : '';
+    this.camSign.classList.toggle('almost', !sf.active);
     this.camBox.classList.toggle('active', !!sf.active);
     this.camBox.classList.toggle('STOP', sf.active === 'STOP');
   }

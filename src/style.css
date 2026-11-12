@@ -78,6 +78,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 .cam video { transform: scaleX(-1); }
 .cam-status { position: absolute; left: 10px; right: 10px; top: 8px; font-family: var(--mono); font-size: 10px; color: var(--dim); text-shadow: 0 1px 2px #000; line-height: 1.35; }
 .cam-sign { position: absolute; right: 10px; bottom: 8px; font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: var(--cyan); text-shadow: 0 1px 2px #000; }
+.cam-sign.almost { color: var(--dim); font-weight: 400; letter-spacing: 0.02em; font-size: 11px; }
 .cam.active { border-color: var(--cyan); box-shadow: 0 0 18px rgba(25,211,255,0.35); }
 .cam.STOP { border-color: var(--red); box-shadow: 0 0 22px rgba(255,59,59,0.5); }
 #btn-cam { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }

@@ -4,40 +4,53 @@ import { Stabilizer } from '../signs/recognizer';
 import type { ExtractedFeatures } from '../vision/features';
 
 /** build a feature set from the few numbers the sign specs read */
-function feats(o: { bends: [number, number, number, number]; thumbBend?: number; thumbUpScore?: number; thumbV?: number; nz?: number; thumbIndex?: number }): ExtractedFeatures {
+function feats(o: { bends: [number, number, number, number]; thumbBend?: number; thumbDirV?: number; thumbV?: number; tipsV?: number; nz?: number; thumbIndex?: number }): ExtractedFeatures {
   const [i, m, r, p] = o.bends;
+  const tv = o.tipsV ?? 1.6;
   return {
     curl: { index: 'extended', middle: 'extended', ring: 'extended', pinky: 'extended' },
     bend: { index: i, middle: m, ring: r, pinky: p },
-    thumb: { curl: 'extended', bend: o.thumbBend ?? 30, position: 'other', scores: { extended_up: o.thumbUpScore ?? 0 } },
+    thumb: { curl: 'extended', bend: o.thumbBend ?? 30, position: 'other', scores: {} },
     palmFacing: 'forward', palmNormal: { x: 0, y: 0, z: o.nz ?? -0.8 },
     fingerDirection: 'up', pointing: { angle: 0, forward: 0, dir: 'up' },
     spread: { 'index-middle': 10, 'middle-ring': 10, 'ring-pinky': 10 },
     touch: { 'thumb-index': o.thumbIndex ?? 1.0, 'thumb-middle': 1, 'thumb-ring': 1, 'thumb-pinky': 1, 'index-middle': 0.3 },
-    crossed: '', palmWidth: 0.08, hand: 'Right', thumbLocal: { u: 0.5, v: o.thumbV ?? 0.8, n: 0 },
+    crossed: '', palmWidth: 0.08, hand: 'Right',
+    thumbLocal: { u: 0.5, v: o.thumbV ?? 0.8, n: 0 },
+    thumbDir: { u: 0.3, v: o.thumbDirV ?? 0.2, n: 0 },
+    tipsV: { index: tv, middle: tv, ring: tv, pinky: tv },
   };
 }
 
 describe('sign vocabulary', () => {
-  it('reads a flat palm toward the camera as STOP', () => {
-    expect(classify(feats({ bends: [20, 25, 20, 30], nz: -0.8 }))?.name).toBe('STOP');
-    expect(classify(feats({ bends: [20, 25, 20, 30], nz: 0.6 }))).toBeNull(); // palm away: not a stop
+  it('reads a flat hand toward the camera as STOP, either side', () => {
+    expect(classify(feats({ bends: [20, 25, 20, 30], nz: -0.8 })).name).toBe('STOP');
+    expect(classify(feats({ bends: [20, 25, 20, 30], nz: 0.7 })).name).toBe('STOP');
+    expect(classify(feats({ bends: [20, 25, 20, 30], nz: 0.05 })).name).toBeNull(); // edge-on: not a stop
+  });
+  it('tolerates a relaxed open hand', () => {
+    expect(classify(feats({ bends: [60, 55, 50, 65], nz: -0.6 })).name).toBe('STOP');
   });
   it('reads a fist as HOLD and a thumbs up as GO', () => {
-    expect(classify(feats({ bends: [180, 185, 190, 180], thumbBend: 100 }))?.name).toBe('HOLD');
-    expect(classify(feats({ bends: [180, 185, 190, 180], thumbBend: 20, thumbUpScore: 0.9, thumbV: 1.5 }))?.name).toBe('GO');
+    expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 100, thumbDirV: -0.2, thumbV: 0.9, tipsV: 0.7 })).name).toBe('HOLD');
+    expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 25, thumbDirV: 0.9, thumbV: 1.4, tipsV: 0.7 })).name).toBe('GO');
+  });
+  it('still reads GO when the fingers are only loosely curled', () => {
+    expect(classify(feats({ bends: [150, 160, 170, 160], thumbBend: 40, thumbDirV: 0.8, thumbV: 1.3, tipsV: 0.9 })).name).toBe('GO');
   });
   it('reads a pinch as SLOW and a lone index as POINT', () => {
-    expect(classify(feats({ bends: [120, 150, 160, 160], thumbIndex: 0.2 }))?.name).toBe('SLOW');
-    expect(classify(feats({ bends: [25, 170, 175, 170], thumbIndex: 0.9 }))?.name).toBe('POINT');
+    expect(classify(feats({ bends: [120, 150, 160, 160], thumbIndex: 0.2 })).name).toBe('SLOW');
+    expect(classify(feats({ bends: [25, 170, 175, 170], thumbIndex: 0.9 })).name).toBe('POINT');
   });
-  it('returns nothing for an ambiguous hand', () => {
-    expect(classify(feats({ bends: [90, 90, 90, 90] }))).toBeNull();
+  it('names the nearest sign even when not confident', () => {
+    const c = classify(feats({ bends: [110, 110, 110, 110] }));
+    expect(c.name).toBeNull();
+    expect(c.best).toBeDefined();
   });
 });
 
 describe('stabilizer', () => {
-  it('fires STOP after 3 frames, once, and remembers when the sign was first seen', () => {
+  it('fires STOP once 3 recent frames agree and remembers when the sign was first seen', () => {
     const s = new Stabilizer();
     expect(s.update('STOP', 100).fired).toBeNull();
     expect(s.update('STOP', 133).fired).toBeNull();
@@ -46,14 +59,21 @@ describe('stabilizer', () => {
     expect(r.firstSeenMs).toBe(100);
     expect(s.update('STOP', 200).fired).toBeNull();
   });
-  it('respects the cooldown but re-fires after it', () => {
+  it('survives a dropped frame in the middle of a GO', () => {
+    const s = new Stabilizer();
+    const seq: Array<'GO' | null> = ['GO', 'GO', null, 'GO', 'GO', 'GO'];
+    let fired: string | null = null;
+    seq.forEach((n, i) => { fired = s.update(n, i * 33).fired ?? fired; });
+    expect(fired).toBe('GO');
+  });
+  it('re-fires after the hand leaves the sign and the cooldown passes', () => {
     const s = new Stabilizer();
     for (let i = 0; i < 6; i++) s.update('GO', i * 33);
-    s.update(null, 300);
-    for (let i = 0; i < 5; i++) expect(s.update('GO', 400 + i * 33).fired).toBeNull();
-    expect(s.update('GO', 400 + 5 * 33).fired).toBeNull(); // within 1200ms cooldown
-    s.update(null, 1500);
+    for (let i = 0; i < 10; i++) s.update(null, 300 + i * 33);
     let fired: string | null = null;
+    for (let i = 0; i < 6; i++) fired = s.update('GO', 700 + i * 33).fired ?? fired;
+    expect(fired).toBeNull(); // still inside the 1200 ms cooldown
+    for (let i = 0; i < 10; i++) s.update(null, 1000 + i * 33);
     for (let i = 0; i < 6; i++) fired = s.update('GO', 1600 + i * 33).fired ?? fired;
     expect(fired).toBe('GO');
   });

@@ -22,7 +22,7 @@ const recognizer = new SignRecognizer();
 const scene = new Scene(document.getElementById('scene') as HTMLCanvasElement);
 const hud = new Hud();
 
-let signFrame: SignFrame = { fired: null, active: null, firstSeenMs: null, frames: 0, score: 0, scores: {}, pointer: null, features: null };
+let signFrame: SignFrame = { fired: null, active: null, firstSeenMs: null, frames: 0, score: 0, scores: {}, nearest: null, pointer: null, features: null };
 let lastHand: HandFrame[] = [];
 let signsRead = 0;
 const reactions: number[] = [];

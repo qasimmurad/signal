@@ -23,6 +23,10 @@ export interface ExtractedFeatures extends HandFeatures {
   pointing: Pointing;
   /** local palm-frame coordinates of the thumb tip, in palm widths */
   thumbLocal: { u: number; v: number; n: number };
+  /** unit direction of the thumb (MCP -> tip) in the palm frame */
+  thumbDir: { u: number; v: number; n: number };
+  /** palm-frame height (v, in palm widths) of each fingertip */
+  tipsV: Record<FingerName, number>;
 }
 
 export function curlFromBend(bend: number, ext: number = T.curl.extendedMax, half: number = T.curl.halfMax): Curl {
@@ -71,9 +75,10 @@ export function extractFeatures(frame: HandFrame): ExtractedFeatures {
   const tCurl = curlFromBend(tBend, T.thumb.extendedMax, T.thumb.halfMax);
   const tt = W[THUMB_TIP];
   const td = norm(sub(tt, W[THUMB_MCP]));
-  const du = dot(td, u), dv = dot(td, v);
+  const du = dot(td, u), dv = dot(td, v), dn = dot(td, n);
   const L = (i: number) => local(W[i], wrist, u, v, n, pw);
   const lt = L(THUMB_TIP);
+  const tipsV: Record<FingerName, number> = { index: L(INDEX_TIP).v, middle: L(MIDDLE_TIP).v, ring: L(RING_TIP).v, pinky: L(PINKY_TIP).v };
   const lIdxPip = L(INDEX_PIP), lMidPip = L(MIDDLE_PIP), lRingPip = L(RING_PIP), lPinkyPip = L(PINKY_PIP);
   const lIdxMcp = L(INDEX_MCP), lMidMcp = L(MIDDLE_MCP), lPinkyMcp = L(PINKY_MCP);
   const mcpV = (lIdxMcp.v + lMidMcp.v + L(RING_MCP).v + lPinkyMcp.v) / 4;
@@ -170,6 +175,8 @@ export function extractFeatures(frame: HandFrame): ExtractedFeatures {
     palmWidth: pw,
     hand: frame.hand,
     thumbLocal: lt,
+    thumbDir: { u: du, v: dv, n: dn },
+    tipsV,
   };
 }
 
