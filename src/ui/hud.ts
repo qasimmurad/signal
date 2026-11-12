@@ -22,14 +22,14 @@ export class Hud {
   constructor() {
     for (const s of SIGNS) {
       const li = document.createElement('li');
-      li.innerHTML = `<span class="e">${s.emoji}</span><span class="n">${s.label}<small>${s.hand}</small></span><span class="r">${s.robot}</span><span class="bar"><i></i></span>`;
+      li.innerHTML = `<span class="e">${s.emoji}</span><span class="n">${s.label}</span><span class="h">${s.hand}</span><span class="r">${s.robot}</span><span class="bar"><i></i></span>`;
       this.vocab.appendChild(li); this.rows.set(s.name, li);
     }
   }
 
   setMode(m: Mode, phase: Phase): void {
     this.mode.dataset.mode = m;
-    this.mode.textContent = m === 'stopped' ? 'STOPPED · show 👍 to resume' : m === 'slow' ? 'SLOW' : 'RUNNING';
+    this.mode.textContent = m === 'stopped' ? 'Stopped · show 👍 to resume' : m === 'slow' ? 'Slow' : 'Running';
     this.phase.textContent = phase;
   }
 
@@ -90,7 +90,7 @@ export class Hud {
     const f = frames[0];
     if (!f) return;
     const P = (i: number) => ({ x: (1 - f.landmarks[i].x) * w, y: f.landmarks[i].y * h });
-    const color = sf.active === 'STOP' ? '#ff3b3b' : sf.active ? '#19d3ff' : 'rgba(223,230,243,0.55)';
+    const color = sf.active === 'STOP' ? '#e37d80' : sf.active ? '#62abf5' : 'rgba(255,255,255,0.7)';
     g.lineWidth = 2; g.strokeStyle = color; g.fillStyle = color;
     g.beginPath();
     for (const [a, b] of HAND_CONNECTIONS) { const p = P(a), q = P(b); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); }
