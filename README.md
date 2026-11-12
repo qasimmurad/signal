@@ -1,5 +1,11 @@
 # Signal — a cobot that reads hand signs
 
+**Status:** working prototype · tested with one hearing user · not yet with deaf or hard-of-hearing operators · simulated arm · MIT
+
+**Try it:** [qasimmurad.github.io/signal](https://qasimmurad.github.io/signal/) — allow the camera, raise a flat hand. No camera? The keys work.
+
+![Signal, stopped by a flat hand: the stack light is red, the badge reads Stopped, and the panel shows 214 ms from sign to standstill](docs/hero.jpg)
+
 A collaborative robot arm packs parts into boxes. You control it with your hands and a plain webcam: **✋ STOP**, **👍 GO**, **🙌 SLOW**, **☝️ GIVE ME**. The robot answers on its stack light and with a caption, and the screen shows how many milliseconds it took to obey.
 
 Built for a deaf line operator. Useful to everyone on a loud floor.
