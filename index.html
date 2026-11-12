@@ -3,88 +3,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nudge — shared-autonomy console</title>
+  <title>Signal — a cobot that reads hand signs</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 </head>
 <body>
   <canvas id="scene"></canvas>
 
   <header class="top">
-    <div class="brand">NUDGE <span class="sub">shared-autonomy console · arm: SO-101 (sim) · panel: BusyBox-style</span></div>
-    <div class="mode" id="mode" data-kind="idle">IDLE · give an instruction</div>
-    <div class="safety" id="safety">speed 100% · workspace ok</div>
+    <div class="brand">SIGNAL <span class="sub">a cobot that reads hand signs</span></div>
+    <div class="mode" id="mode" data-mode="running">RUNNING</div>
+    <div class="phase" id="phase">home</div>
   </header>
+
+  <div class="caption" id="caption" aria-live="assertive"><span id="caption-emoji"></span><span id="caption-text"></span><span class="caption-sub" id="caption-sub"></span></div>
 
   <aside class="col left">
     <section class="card">
-      <h2>Policy intent <span class="hint">what the robot says it is doing</span></h2>
-      <div class="task" id="intent-task">idle</div>
-      <div class="step" id="intent-step">&nbsp;</div>
-      <div class="conf"><span>confidence</span><div class="bar"><i id="conf-fill"></i></div><b id="conf-val">--</b></div>
-      <div class="status" id="intent-status">&nbsp;</div>
+      <h2>Signs the robot reads <span class="hint">one hand, plain webcam</span></h2>
+      <ul class="vocab" id="vocab"></ul>
+      <p class="fine">Recognised on the same feature engine as the ASL fingerspelling coach: finger bends, thumb position, palm normal.</p>
     </section>
-
-    <section class="card">
-      <h2>Instruct <span class="hint">type, say it, or click</span></h2>
-      <form id="instruct-form" autocomplete="off">
-        <input id="instruct" type="text" placeholder="press the red button, then flip the switch up" spellcheck="false">
-        <button type="submit">Run</button>
-      </form>
-      <div class="chips">
-        <button data-say="press the red button">red</button>
-        <button data-say="press the blue button">blue</button>
-        <button data-say="flip the switch up">switch up</button>
-        <button data-say="turn the knob to 3">knob → 3</button>
-        <button data-say="set the slider to 75%">slider 75%</button>
-        <button data-say="reset the panel">reset</button>
-      </div>
-      <div class="row">
-        <button id="btn-demo" class="primary">Run demo script</button>
-        <button id="btn-voice" title="V">🎤 voice off</button>
-        <label class="chaos">chaos <input type="range" id="chaos" min="0" max="100" value="55"><b id="chaos-val">55%</b></label>
-      </div>
-      <ol class="queue" id="queue"></ol>
-      <div class="approval hidden" id="approval">
-        <span id="approval-text"></span>
-        <div class="row"><button id="btn-approve" class="primary">Approve (Y)</button><button id="btn-reject">Reject (N)</button></div>
-      </div>
-      <div class="row small"><button id="btn-skip">Skip this task (X)</button></div>
+    <section class="card persona">
+      <h2>Who it is for</h2>
+      <p><b>Priya</b> runs a packaging line and is deaf. The cobot beside her takes voice commands, which fail for her and, at 95 dB, for everyone else. Now she signs, the robot answers on its stack light, and a caption tells hearing coworkers what she said.</p>
     </section>
-
-    <section class="card howto">
-      <h2>How to nudge</h2>
-      <ul>
-        <li><b>Hand</b> pinch thumb and index to take the gripper. Move your hand to move it, bring it toward the camera to push in. Let go to hand back.</li>
-        <li><b>Voice</b> "stop", "left a bit", "the red one", "yes".</li>
-        <li><b>Pointer</b> rest on a control for ¾ s to send the gripper there. Works with eye-trackers and head mice.</li>
-        <li><b>Keys</b> arrows move, W / S push in / out.</li>
-      </ul>
-      <p class="fine">An open hand in view with no pinch counts as a person in the workspace: the arm slows.</p>
+    <section class="card keys">
+      <h2>No camera? <span class="hint">keys do the same</span></h2>
+      <div class="keyrow"><kbd>S</kbd> stop <kbd>H</kbd> hold <kbd>G</kbd> go <kbd>L</kbd> slow <kbd>1</kbd>–<kbd>4</kbd> that one <kbd>D</kbd> debug</div>
     </section>
   </aside>
 
   <aside class="col right">
     <section class="card">
-      <h2>Trust <span class="hint">per task, from the episodes below</span></h2>
-      <table id="trust"><thead><tr><th>task</th><th>n</th><th>alone</th><th>nudges</th><th>recover</th><th>conf−real</th><th>level</th></tr></thead><tbody></tbody></table>
+      <h2>Shift <span class="hint">this session</span></h2>
       <div class="kpis" id="kpis"></div>
+      <div class="reaction" id="reaction"><b>–</b><span>ms from sign to standstill</span></div>
     </section>
     <section class="card log">
-      <h2>Episodes <span class="hint">every correction, labelled</span></h2>
-      <ol id="episodes"></ol>
-      <div class="row"><button id="btn-export">Export dataset (JSON)</button><span class="fine" id="export-meta">0 episodes</span></div>
+      <h2>Log <span class="hint">every sign, answered</span></h2>
+      <ol id="log"></ol>
     </section>
   </aside>
 
   <div class="cam" id="cam-box">
     <video id="cam" playsinline muted autoplay></video>
     <canvas id="hand"></canvas>
-    <div class="cam-status" id="cam-status">hand control off</div>
-    <button id="btn-cam" title="C">Enable hand control</button>
+    <div class="cam-status" id="cam-status">camera off</div>
+    <div class="cam-sign" id="cam-sign"></div>
+    <button id="btn-cam" class="primary">Enable camera</button>
   </div>
 
+  <pre class="debug hidden" id="debug"></pre>
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>

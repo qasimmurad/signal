@@ -1,237 +1,148 @@
 /**
- * Nudge: a shared-autonomy console. A scripted policy works a BusyBox-style panel with a simulated
- * arm; when it goes wrong you take the gripper with a pinch, a word, a pointer or the keys, and the
- * console records what it was trying to do, what you did, and whether that fixed it.
+ * Signal: a cobot that reads hand signs. A simulated arm packs parts into boxes. Five one-handed
+ * signs from a webcam control it: STOP, HOLD, GO, SLOW and "that one". The robot answers on its
+ * stack light and with a caption, and the screen measures how fast it obeyed.
  */
 import './style.css';
 import { World } from './sim/world';
-import { Policy } from './policy/policy';
-import { Agent, parseInstruction } from './policy/agent';
-import { goalMet, taskLabel, type Task } from './policy/tasks';
-import { Recorder, type Modality, type CompletedBy, type Outcome } from './data/recorder';
+import { Cycle, SPEED, type Mode } from './sim/cycle';
+import { TRAY, type Part } from './sim/cell';
+import { SignRecognizer, type SignFrame } from './signs/recognizer';
+import { SIGNS, type SignName } from './signs/vocabulary';
 import { Scene } from './ui/scene';
-import { Hud, type ModeKind } from './ui/hud';
-import { HandController, type HandSignal } from './control/hand';
-import { KeyboardController } from './control/keyboard';
-import { Voice, parseNudge } from './control/voice';
-import { Dwell } from './control/dwell';
+import { Hud } from './ui/hud';
 import { startCamera, onEveryVideoFrame } from './vision/camera';
 import { HandTracker } from './vision/tracker';
-import { type V3, add, scale, copy } from './sim/vec';
-import type { ButtonColor, PanelState } from './sim/panel';
+import { describeFeatures } from './vision/features';
+import type { HandFrame } from './vision/types';
 
 const world = new World();
-const policy = new Policy(7);
-/** carries out tasks a person chose by pointer or voice; its motion is attributed to the human */
-const assist = new Policy(99);
-const agent = new Agent();
-const recorder = new Recorder();
-const hud = new Hud();
+const cycle = new Cycle(world.cell);
+const recognizer = new SignRecognizer();
 const scene = new Scene(document.getElementById('scene') as HTMLCanvasElement);
-const hand = new HandController();
-const keys = new KeyboardController(() => document.activeElement instanceof HTMLInputElement);
-const dwell = new Dwell(750);
+const hud = new Hud();
 
-const WAIT_S = 14;
-let chaos = 0.55;
-let handSignal: HandSignal = { present: false, pinching: false, inZone: false, delta: null, cursor: null, pinchAmount: 0 };
-let humanAnchor: V3 | null = null;
-let voiceHold: { until: number; target: V3 } | null = null;
-let assistModality: Modality = 'dwell';
-let wasHuman = false;
-let completedBy: CompletedBy = null;
-let goalSeen = false;
-let claimed = false;
-let waitSince: number | null = null;
-let uiTick = 0;
+let signFrame: SignFrame = { fired: null, active: null, firstSeenMs: null, frames: 0, score: 0, scores: {}, pointer: null, features: null };
+let lastHand: HandFrame[] = [];
+let signsRead = 0;
+const reactions: number[] = [];
+let lastReaction: number | null = null;
+/** a STOP is being timed: from the first frame the hand was in the sign until the tip stands still */
+let stopTimer: { sinceMs: number } | null = null;
+let candidate: Part | null = null;
+let candidateSince = 0;
+let selected: Part | null = null;
+let showDebug = false;
 
-const now = () => performance.now() / 1000;
+const nowMs = () => performance.now();
 
-// ---------- episodes ----------
-function startTask(task: Task): void {
-  policy.start(task, world.panel.state, chaos);
-  recorder.startEpisode(task, policy.intent.failure, world.t);
-  goalSeen = false; completedBy = null; claimed = false; waitSince = null;
-  hud.toast(`Policy: ${taskLabel(task)}`);
+function median(xs: number[]): number | null { if (!xs.length) return null; const s = xs.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; }
+
+function apply(sign: SignName, firstSeenMs: number | null, source: 'sign' | 'key'): void {
+  const tip = world.tip;
+  const prev = cycle.mode;
+  let detail = '';
+  switch (sign) {
+    case 'STOP':
+      cycle.setMode('stopped', tip);
+      stopTimer = { sinceMs: firstSeenMs ?? nowMs() };
+      detail = 'robot stopped';
+      hud.showCaption('STOP', 'STOP', 'robot stopped · show 👍 to resume');
+      break;
+    case 'HOLD':
+      if (prev === 'stopped') { detail = 'already stopped'; break; }
+      cycle.setMode('hold', tip);
+      detail = 'robot holding';
+      hud.showCaption('HOLD', 'HOLD', 'robot holding in place');
+      break;
+    case 'GO':
+      if (prev === 'running') { detail = 'already running'; break; }
+      cycle.setMode('running', tip);
+      detail = prev === 'stopped' ? 'resumed from stop' : prev === 'hold' ? 'resumed from hold' : 'back to full speed';
+      hud.showCaption('GO', 'GO', detail);
+      break;
+    case 'SLOW':
+      if (prev === 'stopped') { detail = 'ignored while stopped'; break; }
+      cycle.setMode('slow', tip);
+      detail = 'a third of the speed';
+      hud.showCaption('SLOW', 'SLOW', 'robot running at a third of its speed');
+      break;
+    case 'POINT':
+      return; // handled continuously
+  }
+  if (source === 'sign') signsRead++;
+  hud.addLog({ t: world.t, sign: source === 'key' ? 'KEY' : sign, detail: source === 'key' ? `${sign.toLowerCase()} · ${detail}` : detail });
 }
 
-function closeEpisode(outcome: Outcome): void {
-  const ep = recorder.current;
-  if (!ep) return;
-  if (recorder.interventionOpen) recorder.endIntervention(world.t, world.tip, world.panel.snapshot(), outcome === 'success' ? 'Task completed by the human.' : 'Task abandoned.');
-  const by: CompletedBy = outcome === 'success' ? (completedBy ?? (ep.interventions.length ? 'policy_after_nudge' : 'policy')) : null;
-  recorder.endEpisode(world.t, outcome, by, claimed);
-  agent.shift();
-  policy.stop();
-  waitSince = null;
-  hud.toast(`${ep.label}: ${outcome}${by ? ` (${by.replace(/_/g, ' ')})` : ''}`, outcome === 'success' ? 'ok' : 'warn');
-  hud.setEpisodes(recorder); hud.setTrust(recorder);
+/** map the pointing fingertip onto the tray grid and pick the nearest remaining part */
+function partUnderPointer(p: { x: number; y: number }): Part | null {
+  const rem = world.cell.remaining;
+  if (!rem.length) return null;
+  const gx = TRAY.center.x + (p.x - 0.5) * 0.22; // left/right of the frame → left/right of the tray
+  const gz = TRAY.center.z + (p.y - 0.5) * 0.22; // high in the frame → far row
+  let best: Part | null = null, bd = Infinity;
+  for (const part of rem) { const d = Math.hypot(part.pos.x - gx, part.pos.z - gz); if (d < bd) { bd = d; best = part; } }
+  return best;
 }
 
-function taskFromKey(key: string, s: PanelState): Task | null {
-  const [kind, val] = key.split(':');
-  if (kind === 'button') return { kind: 'press', color: val as ButtonColor };
-  if (kind === 'switch') return { kind: 'switch', up: !s.switchUp };
-  if (kind === 'knob') return { kind: 'knob', to: (s.knob + 1) % 6 };
-  if (kind === 'slider') return { kind: 'slider', to: parseFloat(val ?? '0.5') };
-  return null;
+function thatOne(part: Part, source: 'sign' | 'key'): void {
+  if (part.placed) return;
+  selected = part;
+  cycle.requestNext(part);
+  if (source === 'sign') signsRead++;
+  hud.showCaption('POINT', 'THAT ONE', `the ${part.color} part goes next`);
+  hud.addLog({ t: world.t, sign: source === 'key' ? 'KEY' : 'POINT', detail: `${part.color} part next` });
 }
 
-function runAssist(task: Task, modality: Modality): void {
-  assistModality = modality;
-  assist.start(task, world.panel.state, 0, { force: true });
-  hud.toast(`You (${modality}): ${taskLabel(task)}`, 'human');
-}
-
-function instruct(text: string, source: string): void {
-  const tasks = parseInstruction(text, world.panel.state);
-  if (!tasks.length) { hud.toast(`Didn't catch a task in "${text}"`, 'warn'); return; }
-  const added = agent.enqueue(tasks, source);
-  const held = added.filter((q) => q.needsApproval).length;
-  hud.toast(`Queued ${tasks.length} task${tasks.length === 1 ? '' : 's'}${held ? `, ${held} waiting for approval` : ''}`);
-  hud.setQueue(agent, policy.active);
-}
-
-// ---------- the loop ----------
-let last = now();
+let last = nowMs();
 function loop(): void {
-  const t = now();
-  const dt = Math.min(0.05, t - last); last = t;
+  const t = nowMs();
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
 
-  if (policy.intent.status === 'done') closeEpisode('success');
-  if (policy.intent.status === 'idle') { const q = agent.next(); if (q) startTask(q.task); }
+  // pointing selects continuously; a steady point on the same part for 600 ms confirms it
+  if (signFrame.active === 'POINT' && signFrame.pointer) {
+    const c = partUnderPointer(signFrame.pointer);
+    if (c !== candidate) { candidate = c; candidateSince = t; }
+    else if (candidate && t - candidateSince > 600 && selected !== candidate) thatOne(candidate, 'sign');
+  } else { candidate = null; }
+  if (selected && (selected.placed || selected.held)) selected = null;
 
-  // who is driving this frame
-  let humanTarget: V3 | null = null;
-  let modality: Modality = 'hand';
-  if (handSignal.pinching && handSignal.delta) {
-    if (!humanAnchor) humanAnchor = copy(world.target);
-    humanTarget = add(humanAnchor, handSignal.delta); modality = 'hand';
-  } else humanAnchor = null;
-  if (!humanTarget && keys.active) { humanTarget = add(world.target, scale(keys.velocity(), dt)); modality = 'keyboard'; }
-  if (!humanTarget && voiceHold) {
-    if (t < voiceHold.until) { humanTarget = voiceHold.target; modality = 'voice'; } else voiceHold = null;
-  }
-  if (!humanTarget && assist.active) {
-    const at = assist.tick(dt, world.tip, world.panel.state);
-    if (at) { humanTarget = at; modality = assistModality; }
-    else assist.stop();
-  }
-  const humanActive = !!humanTarget;
+  world.speedScale = SPEED[cycle.mode];
+  const target = cycle.tick(dt, world.tip, world.t);
+  world.step(dt, target);
 
-  if (humanActive && !wasHuman) {
-    recorder.beginIntervention(world.t, modality, policy.intent, world.tip, world.panel.snapshot());
-    if (policy.active) hud.toast(`You took over (${modality}) while the policy was "${policy.intent.step}"`, 'human');
-  }
-  if (!humanActive && wasHuman) {
-    const r = policy.active ? policy.handback(world.tip, world.panel.state) : 'resumed';
-    const note = r === 'done' ? 'Task completed by the human.' : r === 'replanned' ? 'Policy replanned from the nudge and continued.' : 'Policy resumed.';
-    const iv = recorder.endIntervention(world.t, world.tip, world.panel.snapshot(), note);
-    if (iv) hud.toast(`Handed back · ${note}`, r === 'done' ? 'ok' : '');
-    waitSince = null;
-    hud.setEpisodes(recorder);
-  }
-  wasHuman = humanActive;
-
-  const zone = handSignal.inZone;
-  world.speedScale = zone ? 0.35 : 1;
-
-  if (humanActive) world.step(dt, humanTarget, 'human');
-  else { const pt = policy.tick(dt, world.tip, world.panel.state); world.step(dt, pt, pt ? 'policy' : 'idle'); }
-
-  // episode bookkeeping
-  const ep = recorder.current;
-  let countdown: number | null = null;
-  if (ep) {
-    if (!goalSeen && goalMet(ep.task, world.panel.state)) {
-      goalSeen = true;
-      completedBy = world.controller === 'human' ? 'human' : ep.interventions.length || recorder.interventionOpen ? 'policy_after_nudge' : 'policy';
-    }
-    recorder.frame(dt, world.t, world.controller, world.controller === 'idle' ? null : world.target, world.tip, world.arm.joints, policy.intent);
-    const st = policy.intent.status;
-    if (st === 'claimed_done') claimed = true;
-    if (st === 'done') closeEpisode('success');
-    else if ((st === 'stuck' || st === 'claimed_done') && !humanActive) {
-      if (waitSince === null) { waitSince = world.t; hud.toast(st === 'claimed_done' ? 'Policy reported success. The panel disagrees.' : 'Policy is stuck and asking for a nudge.', 'warn'); }
-      countdown = WAIT_S - (world.t - waitSince);
-      if (countdown <= 0) closeEpisode('failed');
-    }
+  if (stopTimer && world.tipSpeed < 0.001) {
+    const ms = t - stopTimer.sinceMs;
+    stopTimer = null; reactions.push(ms); lastReaction = ms;
+    hud.addLog({ t: world.t, sign: 'STOP', detail: 'standstill', reactionMs: ms });
   }
 
-  // view
-  scene.update(world, world.controller, zone, dwell.progress);
+  const blink = Math.floor(t / 500) % 2 === 0;
+  scene.update(world, cycle, cycle.mode, candidate, selected, blink);
   scene.render();
-  const it = policy.intent;
-  const mode: [ModeKind, string] = humanActive ? ['human', `YOU ARE DRIVING · ${modality}`]
-    : agent.waiting && !policy.active ? ['waiting', 'WAITING FOR APPROVAL']
-    : it.status === 'stuck' || it.status === 'claimed_done' ? ['nudge', 'NEEDS A NUDGE']
-    : policy.active ? ['policy', 'POLICY DRIVING'] : ['idle', 'IDLE · give an instruction'];
-  hud.setMode(mode[0], mode[1]);
-  hud.setSafety(world.speedScale * 100, zone, world.clamped && world.controller !== 'idle', world.reachable);
-  hud.setIntent(it, countdown);
-  if ((uiTick++ & 15) === 0) { hud.setQueue(agent, policy.active); hud.setApproval(agent.waiting && !policy.active ? agent.waiting : null); }
+  hud.setMode(cycle.mode, cycle.phase);
+  hud.setStats({ boxes: world.cell.boxesShipped, parts: world.cell.partsPacked, signs: signsRead, stops: reactions.length, medianReaction: median(reactions), lastReaction });
+  if (showDebug) {
+    const f = signFrame.features;
+    const sc = SIGNS.map((s) => `${s.name.padEnd(5)} ${(signFrame.scores[s.name] ?? 0).toFixed(2)}`).join('  ');
+    hud.setDebug(`${sc}\nactive ${signFrame.active ?? '-'} frames ${signFrame.frames}\n${f ? describeFeatures(f) : 'no hand'}`);
+  }
   requestAnimationFrame(loop);
 }
 
-// ---------- inputs ----------
-const form = document.getElementById('instruct-form') as HTMLFormElement;
-const input = document.getElementById('instruct') as HTMLInputElement;
-form.addEventListener('submit', (e) => { e.preventDefault(); if (input.value.trim()) { instruct(input.value, 'typed'); input.value = ''; input.blur(); } });
-document.querySelectorAll<HTMLButtonElement>('.chips button').forEach((b) => b.addEventListener('click', () => instruct(b.dataset.say ?? '', 'click')));
-document.getElementById('btn-demo')!.addEventListener('click', () => instruct('press the red button, then flip the switch up, turn the knob to 3, set the slider to 75%, press the blue button, then press the green button', 'demo'));
-const chaosEl = document.getElementById('chaos') as HTMLInputElement;
-chaosEl.addEventListener('input', () => { chaos = Number(chaosEl.value) / 100; document.getElementById('chaos-val')!.textContent = `${chaosEl.value}%`; });
-document.getElementById('btn-approve')!.addEventListener('click', () => { agent.approve(); hud.setApproval(null); });
-document.getElementById('btn-reject')!.addEventListener('click', () => { const q = agent.reject(); if (q) hud.toast(`Rejected: ${taskLabel(q.task)}`, 'warn'); hud.setQueue(agent, policy.active); });
-document.getElementById('btn-skip')!.addEventListener('click', () => { if (recorder.current) closeEpisode('skipped'); });
-document.getElementById('btn-export')!.addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(recorder.export(), null, 1)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nudge-dataset-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-});
-
+// keyboard fallback
 window.addEventListener('keydown', (e) => {
-  if (document.activeElement instanceof HTMLInputElement) return;
   const k = e.key.toLowerCase();
-  if (k === 'y') { agent.approve(); hud.setApproval(null); }
-  if (k === 'n') { const q = agent.reject(); if (q) hud.toast(`Rejected: ${taskLabel(q.task)}`, 'warn'); }
-  if (k === 'x' && recorder.current) closeEpisode('skipped');
-  if (k === 'v') voice.toggle();
+  if (k === 's') apply('STOP', null, 'key');
+  if (k === 'h') apply('HOLD', null, 'key');
+  if (k === 'g') apply('GO', null, 'key');
+  if (k === 'l') apply('SLOW', null, 'key');
+  if (k >= '1' && k <= '4') { const p = world.cell.parts.find((x) => x.slot === Number(k) - 1 && !x.placed); if (p) thatOne(p, 'key'); }
+  if (k === 'd') { showDebug = !showDebug; if (!showDebug) hud.setDebug(null); }
   if (k === 'c') void enableCamera();
 });
 
-// voice
-const voice = new Voice((text) => {
-  const n = parseNudge(text);
-  hud.toast(`heard: "${text.trim()}"`);
-  if (n) {
-    if (n.kind === 'stop') voiceHold = { until: now() + 4, target: copy(world.tip) };
-    if (n.kind === 'go') voiceHold = null;
-    if (n.kind === 'move') voiceHold = { until: now() + 1.1, target: add(voiceHold ? voiceHold.target : world.target, n.delta) };
-    if (n.kind === 'approve') { agent.approve(); hud.setApproval(null); }
-    if (n.kind === 'reject') agent.reject();
-    if (n.kind === 'skip' && recorder.current) closeEpisode('skipped');
-    return;
-  }
-  const tasks = parseInstruction(text, world.panel.state);
-  if (tasks.length === 1 && policy.active) runAssist(tasks[0], 'voice'); // "the red one" while the policy is confused
-  else instruct(text, 'voice');
-}, (listening) => hud.setVoice(listening, voice.supported));
-hud.setVoice(false, voice.supported);
-document.getElementById('btn-voice')!.addEventListener('click', () => voice.toggle());
-
-// dwell pointer
-const sceneCanvas = document.getElementById('scene') as HTMLCanvasElement;
-sceneCanvas.addEventListener('pointermove', (e) => {
-  if (e.buttons !== 0) { dwell.reset(); scene.setHover(null); return; }
-  const key = scene.pick(e.clientX, e.clientY);
-  scene.setHover(key);
-  const fired = dwell.update(key, performance.now());
-  if (fired) { const task = taskFromKey(fired, world.panel.state); if (task) runAssist(task, 'dwell'); }
-});
-sceneCanvas.addEventListener('pointerleave', () => { dwell.reset(); scene.setHover(null); });
-
-// camera + hand tracking
+// camera + signs
 let camOn = false;
 async function enableCamera(): Promise<void> {
   if (camOn) return;
@@ -242,20 +153,21 @@ async function enableCamera(): Promise<void> {
     await startCamera(video, { width: 640, height: 480, fps: 30 });
     hud.setCam('loading hand model…', true);
     const tracker = await HandTracker.create({ numHands: 1 });
-    hud.setCam(`hand control on · ${tracker.delegate}`, true);
-    onEveryVideoFrame(video, (nowMs) => {
-      const frames = tracker.detect(video, nowMs);
-      handSignal = hand.update(frames, nowMs);
-      hud.drawHand(frames, handSignal);
+    hud.setCam(`reading signs · ${tracker.delegate}`, true);
+    onEveryVideoFrame(video, (ms) => {
+      lastHand = tracker.detect(video, ms);
+      signFrame = recognizer.update(lastHand, ms);
+      hud.setSigns(signFrame);
+      hud.drawHand(lastHand, signFrame);
+      if (signFrame.fired && signFrame.fired !== 'POINT') apply(signFrame.fired, signFrame.firstSeenMs, 'sign');
     });
   } catch (e) {
     camOn = false;
-    hud.setCam('camera unavailable', false);
+    hud.setCam('camera unavailable · keys still work', false);
     hud.toast(`Camera: ${(e as Error).message}`, 'warn');
   }
 }
 document.getElementById('btn-cam')!.addEventListener('click', () => void enableCamera());
 
-hud.setTrust(recorder); hud.setEpisodes(recorder);
-hud.toast('Give the robot a task, then nudge it when it gets it wrong.');
+hud.toast('Show ✋ to stop the robot. Keys S H G L work without a camera.');
 requestAnimationFrame(loop);
