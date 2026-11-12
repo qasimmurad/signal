@@ -1,12 +1,12 @@
 /**
- * Five one-handed signs, scored on the same features the ASL fingerspelling coach uses: total bend
+ * Four one-handed signs, scored on the same features the ASL fingerspelling coach uses: total bend
  * per finger, thumb geometry in the palm frame, the palm normal and fingertip contacts.
  * Each score is 0..1 and soft, so a sign degrades gracefully instead of flickering.
  */
 import type { ExtractedFeatures } from '../vision/features';
 import { smooth } from '../vision/landmarks';
 
-export type SignName = 'STOP' | 'HOLD' | 'GO' | 'SLOW' | 'POINT';
+export type SignName = 'STOP' | 'GO' | 'SLOW' | 'POINT';
 type Finger = 'index' | 'middle' | 'ring' | 'pinky';
 
 export interface SignSpec {
@@ -49,10 +49,6 @@ export const SIGNS: readonly SignSpec[] = [
   {
     name: 'STOP', emoji: '✋', hand: 'flat hand toward the camera', robot: 'freezes, light red, needs GO', need: 3, cooldownMs: 1200,
     score: (f) => fingersOpen(f) * flatToCamera(f),
-  },
-  {
-    name: 'HOLD', emoji: '✊', hand: 'fist', robot: 'pauses where it is', need: 5, cooldownMs: 1200,
-    score: (f) => fingersCurled(f) * (1 - thumbUp(f)),
   },
   {
     name: 'GO', emoji: '👍', hand: 'thumbs up', robot: 'resumes', need: 5, cooldownMs: 1200,

@@ -29,7 +29,7 @@ export class Hud {
 
   setMode(m: Mode, phase: Phase): void {
     this.mode.dataset.mode = m;
-    this.mode.textContent = m === 'stopped' ? 'STOPPED · show 👍 to resume' : m === 'hold' ? 'HOLD' : m === 'slow' ? 'SLOW' : 'RUNNING';
+    this.mode.textContent = m === 'stopped' ? 'STOPPED · show 👍 to resume' : m === 'slow' ? 'SLOW' : 'RUNNING';
     this.phase.textContent = phase;
   }
 

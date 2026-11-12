@@ -12,8 +12,7 @@ The robot reads hand signs from a plain webcam.
 
 | sign | hand | the robot |
 |---|---|---|
-| STOP | flat palm toward the camera | freezes, light goes red, needs GO to resume |
-| HOLD | fist | pauses where it is, light amber |
+| STOP | flat hand toward the camera, either side | freezes, light goes red, needs GO to resume |
 | GO | thumbs up | resumes |
 | SLOW | thumb and index pinched ("a little") | runs at a third of its speed |
 | THAT ONE | point at a part | packs that part next |
@@ -32,7 +31,7 @@ Every sign is answered on the robot's stack light and as a caption on the cell s
 - A kinematic 5-DOF arm with a top-down gripper, SO-101 proportions, analytic IK, bounded joint speed.
 - A packing cell: a tray of four parts, a box, an endless pack cycle with a parts count.
 - Sign recognition on the same feature engine as the ASL fingerspelling coach (curl per finger, thumb position scores, palm normal), with per-sign stability windows and cooldowns.
-- Robot modes: running, slow, hold, stopped, plus "that one next".
+- Robot modes: running, slow, stopped, plus "that one next".
 - Stack light, captions, a shift log with reaction times, and a keyboard fallback for demos without a camera.
 
 ## Out of scope
@@ -40,3 +39,4 @@ Every sign is answered on the robot's stack light and as a caption on the cell s
 - Learned perception. Rules on landmarks are enough for five signs and make the behaviour explainable.
 - Physics. Grasps are geometric.
 - Two-handed signs and motion signs. The vocabulary is one static hand.
+- A fist for HOLD. Tried and removed: one finger away from thumbs-up, and the pose hand tracking handles worst. Four signs that look nothing alike beat five that do not.

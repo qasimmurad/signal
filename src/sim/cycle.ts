@@ -1,13 +1,13 @@
 /**
  * The pack cycle: take the next part from the tray, put it in the box, repeat forever. It is a
- * state machine over waypoints with four modes that a sign can set: running, slow, hold, stopped.
- * HOLD and STOP freeze the tip where it is; GO resumes from the same phase. "That one next"
+ * state machine over waypoints with three modes that a sign can set: running, slow, stopped.
+ * STOP freezes the tip where it is; GO resumes from the same phase. "That one next"
  * re-targets the pick while the gripper is empty, or queues it for after the current place.
  */
 import { type V3, v3, dist, copy } from './vec';
 import { type Cell, type Part, BOX_SLOTS, GRIP_OFFSET } from './cell';
 
-export type Mode = 'running' | 'slow' | 'hold' | 'stopped';
+export type Mode = 'running' | 'slow' | 'stopped';
 export type Phase = 'home' | 'to part' | 'descend' | 'grasp' | 'lift' | 'to box' | 'lower' | 'place' | 'rise' | 'waiting';
 
 export const HOME = v3(0.0, 0.15, -0.14);
@@ -16,7 +16,7 @@ const REACH = 0.006;
 const GRIP_HOLD = 0.25;
 const TRAY_WAIT = 1.0;
 
-export const SPEED: Record<Mode, number> = { running: 1, slow: 0.3, hold: 0, stopped: 0 };
+export const SPEED: Record<Mode, number> = { running: 1, slow: 0.3, stopped: 0 };
 
 export class Cycle {
   mode: Mode = 'running';
@@ -31,11 +31,11 @@ export class Cycle {
 
   constructor(private cell: Cell) {}
 
-  get frozenNow(): boolean { return this.mode === 'hold' || this.mode === 'stopped'; }
+  get frozenNow(): boolean { return this.mode === 'stopped'; }
 
   setMode(m: Mode, tip: V3): void {
     if (m === this.mode) return;
-    if (m === 'stopped' || m === 'hold') this.frozen = copy(tip);
+    if (m === 'stopped') this.frozen = copy(tip);
     else this.frozen = null;
     this.mode = m;
   }

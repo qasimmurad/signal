@@ -31,9 +31,9 @@ describe('sign vocabulary', () => {
   it('tolerates a relaxed open hand', () => {
     expect(classify(feats({ bends: [60, 55, 50, 65], nz: -0.6 })).name).toBe('STOP');
   });
-  it('reads a fist as HOLD and a thumbs up as GO', () => {
-    expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 100, thumbDirV: -0.2, thumbV: 0.9, tipsV: 0.7 })).name).toBe('HOLD');
+  it('reads a thumbs up as GO and a plain fist as nothing', () => {
     expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 25, thumbDirV: 0.9, thumbV: 1.4, tipsV: 0.7 })).name).toBe('GO');
+    expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 100, thumbDirV: -0.2, thumbV: 0.9, tipsV: 0.7 })).name).toBeNull();
   });
   it('still reads GO when the fingers are only loosely curled', () => {
     expect(classify(feats({ bends: [150, 160, 170, 160], thumbBend: 40, thumbDirV: 0.8, thumbV: 1.3, tipsV: 0.9 })).name).toBe('GO');

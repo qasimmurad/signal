@@ -123,7 +123,7 @@ export class Scene {
     for (const [id, m] of this.partMeshes) if (!seen.has(id)) { this.partsGroup.remove(m); this.partMeshes.delete(id); }
   }
 
-  update(world: World, cycle: Cycle, mode: Mode, candidate: Part | null, selected: Part | null, blink: boolean): void {
+  update(world: World, cycle: Cycle, mode: Mode, candidate: Part | null, selected: Part | null): void {
     const fk = world.arm.pose;
     alignCylinder(this.links[0], fk.shoulder, fk.elbow);
     alignCylinder(this.links[1], fk.elbow, fk.wrist);
@@ -141,11 +141,11 @@ export class Scene {
 
     const L = this.lamps;
     (L.green.material as THREE.MeshStandardMaterial).emissiveIntensity = mode === 'running' ? 1.6 : mode === 'slow' ? 0.5 : 0.05;
-    (L.amber.material as THREE.MeshStandardMaterial).emissiveIntensity = mode === 'slow' ? 1.6 : mode === 'hold' ? (blink ? 1.8 : 0.1) : 0.05;
+    (L.amber.material as THREE.MeshStandardMaterial).emissiveIntensity = mode === 'slow' ? 1.6 : 0.05;
     (L.red.material as THREE.MeshStandardMaterial).emissiveIntensity = mode === 'stopped' ? 2.0 : 0.05;
     const halo = this.haloRing.material as THREE.MeshBasicMaterial;
     halo.color.setHex(mode === 'stopped' ? 0xff3b3b : mode === 'running' ? 0x3bff7a : 0xffa02e);
-    halo.opacity = mode === 'hold' ? (blink ? 0.6 : 0.15) : 0.5;
+    halo.opacity = 0.5;
 
     this.ringCandidate.visible = !!candidate && candidate !== selected;
     if (candidate) this.ringCandidate.position.set(candidate.pos.x, 0.0075, candidate.pos.z);

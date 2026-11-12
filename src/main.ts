@@ -1,6 +1,6 @@
 /**
- * Signal: a cobot that reads hand signs. A simulated arm packs parts into boxes. Five one-handed
- * signs from a webcam control it: STOP, HOLD, GO, SLOW and "that one". The robot answers on its
+ * Signal: a cobot that reads hand signs. A simulated arm packs parts into boxes. Four one-handed
+ * signs from a webcam control it: STOP, GO, SLOW and "that one". The robot answers on its
  * stack light and with a caption, and the screen measures how fast it obeyed.
  */
 import './style.css';
@@ -49,16 +49,10 @@ function apply(sign: SignName, firstSeenMs: number | null, source: 'sign' | 'key
       detail = 'robot stopped';
       hud.showCaption('STOP', 'STOP', 'robot stopped · show 👍 to resume');
       break;
-    case 'HOLD':
-      if (prev === 'stopped') { detail = 'already stopped'; break; }
-      cycle.setMode('hold', tip);
-      detail = 'robot holding';
-      hud.showCaption('HOLD', 'HOLD', 'robot holding in place');
-      break;
     case 'GO':
       if (prev === 'running') { detail = 'already running'; break; }
       cycle.setMode('running', tip);
-      detail = prev === 'stopped' ? 'resumed from stop' : prev === 'hold' ? 'resumed from hold' : 'back to full speed';
+      detail = prev === 'stopped' ? 'resumed from stop' : 'back to full speed';
       hud.showCaption('GO', 'GO', detail);
       break;
     case 'SLOW':
@@ -122,8 +116,7 @@ function loop(): void {
     }
   }
 
-  const blink = Math.floor(t / 500) % 2 === 0;
-  scene.update(world, cycle, cycle.mode, candidate, selected, blink);
+  scene.update(world, cycle, cycle.mode, candidate, selected);
   scene.render();
   hud.setMode(cycle.mode, cycle.phase);
   hud.setStats({ boxes: world.cell.boxesShipped, parts: world.cell.partsPacked, signs: signsRead, stops: reactions.length, medianReaction: median(reactions), lastReaction });
@@ -139,7 +132,6 @@ function loop(): void {
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 's') apply('STOP', null, 'key');
-  if (k === 'h') apply('HOLD', null, 'key');
   if (k === 'g') apply('GO', null, 'key');
   if (k === 'l') apply('SLOW', null, 'key');
   if (k >= '1' && k <= '4') { const p = world.cell.parts.find((x) => x.slot === Number(k) - 1 && !x.placed); if (p) thatOne(p, 'key'); }
@@ -179,5 +171,5 @@ async function enableCamera(): Promise<void> {
 }
 document.getElementById('btn-cam')!.addEventListener('click', () => void enableCamera());
 
-hud.toast('Show ✋ to stop the robot. Keys S H G L work without a camera.');
+hud.toast('Show ✋ to stop the robot. Keys S G L and 1–4 work without a camera.');
 requestAnimationFrame(loop);
