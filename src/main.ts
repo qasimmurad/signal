@@ -94,10 +94,13 @@ function thatOne(part: Part, source: 'sign' | 'key'): void {
   hud.addLog({ t: world.t, sign: source === 'key' ? 'KEY' : 'POINT', detail: `${part.color} part next` });
 }
 
+/** fixed simulation step, so sim time tracks wall time whatever the display's frame rate */
+const STEP = 1 / 120;
+let acc = 0;
 let last = nowMs();
 function loop(): void {
   const t = nowMs();
-  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  acc += Math.min(0.6, (t - last) / 1000); last = t;
 
   // pointing selects continuously; a steady point on the same part for 600 ms confirms it
   if (signFrame.active === 'POINT' && signFrame.pointer) {
@@ -108,13 +111,15 @@ function loop(): void {
   if (selected && (selected.placed || selected.held)) selected = null;
 
   world.speedScale = SPEED[cycle.mode];
-  const target = cycle.tick(dt, world.tip, world.t);
-  world.step(dt, target);
-
-  if (stopTimer && world.tipSpeed < 0.001) {
-    const ms = t - stopTimer.sinceMs;
-    stopTimer = null; reactions.push(ms); lastReaction = ms;
-    hud.addLog({ t: world.t, sign: 'STOP', detail: 'standstill', reactionMs: ms });
+  while (acc >= STEP) {
+    const target = cycle.tick(STEP, world.tip, world.t);
+    world.step(STEP, target);
+    acc -= STEP;
+    if (stopTimer && world.tipSpeed < 0.001) {
+      const ms = t - stopTimer.sinceMs;
+      stopTimer = null; reactions.push(ms); lastReaction = ms;
+      hud.addLog({ t: world.t, sign: 'STOP', detail: 'standstill', reactionMs: ms });
+    }
   }
 
   const blink = Math.floor(t / 500) % 2 === 0;

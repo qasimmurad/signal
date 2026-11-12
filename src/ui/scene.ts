@@ -38,13 +38,13 @@ export class Scene {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.scene.background = new THREE.Color(0x0b0e14);
     this.scene.fog = new THREE.Fog(0x0b0e14, 1.0, 2.0);
-    this.camera = new THREE.PerspectiveCamera(36, 1, 0.02, 10);
-    this.camera.position.set(0.02, 0.42, 0.36);
+    this.camera = new THREE.PerspectiveCamera(34, 1, 0.02, 10);
+    this.camera.position.set(0.0, 0.5, 0.6);
     this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.target.set(0.01, 0.05, -0.14);
+    this.controls.target.set(0.0, 0.02, -0.16);
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.47;
     this.controls.minDistance = 0.25; this.controls.maxDistance = 1.4;
@@ -88,8 +88,8 @@ export class Scene {
     this.scene.add(this.partsGroup);
 
     // stack light
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.13, 12), dark); pole.position.set(0.3, 0.065, -0.02); this.scene.add(pole);
-    const lamp = (color: number, y: number) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.028, 24), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.3 })); m.position.set(0.3, y, -0.02); this.scene.add(m); return m; };
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.13, 12), dark); pole.position.set(0.0, 0.065, -0.36); this.scene.add(pole);
+    const lamp = (color: number, y: number) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.028, 24), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.3 })); m.position.set(0.0, y, -0.36); this.scene.add(m); return m; };
     this.lamps = { green: lamp(0x3bff7a, 0.145), amber: lamp(0xffa02e, 0.175), red: lamp(0xff3b3b, 0.205) };
 
     // rings
