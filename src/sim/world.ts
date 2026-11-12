@@ -1,50 +1,35 @@
-/**
- * The world owns the arm and the panel and advances them one step at a time. Whoever is driving
- * (policy, human, or nobody) hands in a target; the world clamps it to the workspace, applies the
- * safety speed scale, moves the arm, and lets the panel react to the tool tip.
- */
+/** The world owns the arm and the cell and advances them one step at a time. */
 import { Arm } from './arm';
-import { Panel, PANEL_Z, type PanelEvent } from './panel';
+import { Cell } from './cell';
 import { type V3, v3, clamp, copy } from './vec';
 
-export type Controller = 'policy' | 'human' | 'idle';
+export const BOUNDS = { min: v3(-0.24, 0.015, -0.26), max: v3(0.24, 0.26, -0.02) } as const;
 
-export const BOUNDS = { min: v3(-0.2, 0.03, -0.3), max: v3(0.2, 0.32, -0.04) } as const;
-/** the panel face is solid: the tip can sink into a module but not through the plate */
-export const Z_FLOOR = PANEL_Z + 0.003;
-
-export function clampToWorkspace(p: V3): { p: V3; clamped: boolean } {
-  const q = v3(clamp(p.x, BOUNDS.min.x, BOUNDS.max.x), clamp(p.y, BOUNDS.min.y, BOUNDS.max.y), clamp(p.z, Math.max(BOUNDS.min.z, Z_FLOOR), BOUNDS.max.z));
-  return { p: q, clamped: q.x !== p.x || q.y !== p.y || q.z !== p.z };
+export function clampToWorkspace(p: V3): V3 {
+  return v3(clamp(p.x, BOUNDS.min.x, BOUNDS.max.x), clamp(p.y, BOUNDS.min.y, BOUNDS.max.y), clamp(p.z, BOUNDS.min.z, BOUNDS.max.z));
 }
 
 export class World {
   arm = new Arm();
-  panel = new Panel();
-  /** the commanded tip position after clamping */
+  cell = new Cell();
   target: V3;
-  controller: Controller = 'idle';
-  /** 1 = full speed; the safety layer lowers it when a person is in the zone */
   speedScale = 1;
   reachable = true;
-  clamped = false;
   t = 0;
-  lastEvents: PanelEvent[] = [];
+  /** tip speed in m/s over the last step */
+  tipSpeed = 0;
 
   constructor() { this.target = copy(this.arm.tip); }
-
   get tip(): V3 { return this.arm.tip; }
 
-  step(dt: number, target: V3 | null, controller: Controller): void {
+  step(dt: number, target: V3 | null): void {
     this.t += dt;
-    this.controller = controller;
-    if (target) {
-      const c = clampToWorkspace(target);
-      this.target = c.p;
-      this.clamped = c.clamped;
-    }
+    if (target) this.target = clampToWorkspace(target);
+    const before = this.arm.tip;
     const sol = this.arm.moveToward(this.target, dt, this.speedScale);
     this.reachable = sol.reachable;
-    this.lastEvents = this.panel.interact(this.arm.tip, this.t);
+    const after = this.arm.tip;
+    this.tipSpeed = dt > 0 ? Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z) / dt : 0;
+    this.cell.step(after, this.t);
   }
 }
