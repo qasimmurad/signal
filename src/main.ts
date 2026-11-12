@@ -168,8 +168,13 @@ async function enableCamera(): Promise<void> {
     });
   } catch (e) {
     camOn = false;
-    hud.setCam('camera unavailable · keys still work', false);
-    hud.toast(`Camera: ${(e as Error).message}`, 'warn');
+    const err = e as Error;
+    const why = err.name === 'NotAllowedError' ? 'camera permission denied — allow it in the address bar and click again'
+      : err.name === 'NotFoundError' ? 'no camera found on this device'
+      : err.name === 'NotReadableError' ? 'camera is in use by another app'
+      : err.message;
+    hud.setCam(`camera off · ${why} · keys still work`, false);
+    hud.toast(`Camera: ${why}`, 'warn');
   }
 }
 document.getElementById('btn-cam')!.addEventListener('click', () => void enableCamera());

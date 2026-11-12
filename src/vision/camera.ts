@@ -3,7 +3,8 @@
 export interface CameraOptions { width?: number; height?: number; fps?: number }
 
 export async function startCamera(video: HTMLVideoElement, opts: CameraOptions = {}): Promise<MediaStream> {
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser has no camera API (getUserMedia).');
+  if (!window.isSecureContext) throw new Error(`browsers only allow the camera on https or localhost — open http://localhost:${location.port || 80} instead of ${location.host}`);
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('this browser has no camera API — open the page in Chrome or Safari');
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
