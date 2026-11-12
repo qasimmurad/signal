@@ -1,9 +1,9 @@
 {
-  "name": "nudge",
+  "name": "signal",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Nudge: a shared-autonomy console where you correct a robot policy with your hand on a webcam, and every correction becomes labelled training data.",
+  "description": "Signal: a cobot that reads hand signs. STOP, HOLD, GO, SLOW and point-to-select from a plain webcam, for deaf line operators and loud floors.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

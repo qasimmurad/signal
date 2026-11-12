@@ -1,41 +1,42 @@
-# Nudge — design
+# Signal — design
 
-*A shared-autonomy console for correcting a robot policy from a webcam, where every correction becomes labelled training data.*
+*A cobot that reads hand signs.*
 
-## Why this exists
+## The person and the moment
 
-Microsoft Robotics (inside Microsoft Discovery and Quantum) is building "a platform for physical intelligence that brings together humans, robots, and agents". The pieces that are public as of November 2026:
+Priya runs a packaging line. She is deaf. The plant just installed a collaborative arm beside the line to pack parts into boxes. When the arm starts a cycle at the wrong moment, a hearing colleague shouts "stop". Priya cannot. Neither can anyone else, really: the floor runs at 95 decibels and the arm's voice commands never worked for anybody.
 
-- **Rho-alpha** (Jan 2026): a Phi-derived vision-language-action model for bimanual manipulation with tactile sensing. Its headline demo is a robot failing a plug insertion, a human nudging it back on track with a 3D mouse, and the stated goal of learning from those corrections during deployment.
-- **BusyBox**: a 3D-printable panel of buttons, a knob, sliders, switches and wires used to test whether a policy generalises affordances. Even strong open models (π0.5, GR00T N1.6) struggle when the modules are rearranged.
-- **Physical AI Toolchain** (open source): ROS 2 capture on Jetson, LeRobot conversion, training on Azure ML, Isaac Lab RL, evaluation dashboards, GitOps rollout, GPU offload. Its "T5 Operate / fleet intelligence" tier is on the roadmap and not built.
-- **Open roles**: the Human-Robot-AI Interaction role lists natural-language task instruction, shared autonomy control panels, intent and status displays, trust calibration and gesture input.
+## The feature
 
-## The gap Nudge goes after
+The robot reads hand signs from a plain webcam.
 
-1. **Correction data is the scarce input and the current loop is expensive.** It needs an expert at a 3D mouse, next to a physical robot, on a Jetson + ROS 2 + Azure stack that the toolchain itself says is "not for desktop demos (yet)". Rho-alpha's continual learning only works if corrections are plentiful.
-2. **Corrections are not legible.** A teleop trace says *what* the human did, not *why*. Without the "why", a correction is weak training data and no evaluation signal at all.
-3. **Trust is asserted, not measured.** The Rho-alpha page says adaptive robots "will be more trusted". Evaluation so far is qualitative. Nothing public turns intervention data into an autonomy decision.
+| sign | hand | the robot |
+|---|---|---|
+| STOP | flat palm toward the camera | freezes, light goes red, needs GO to resume |
+| HOLD | fist | pauses where it is, light amber |
+| GO | thumbs up | resumes |
+| SLOW | thumb and index pinched ("a little") | runs at a third of its speed |
+| THAT ONE | point at a part | packs that part next |
 
-## The workaround
+Every sign is answered on the robot's stack light and as a caption on the cell screen, so hearing coworkers see what was said. Reaction time from sign to standstill is measured and shown.
 
-- **Make correction cheap:** a browser and a webcam. Pinch to take the gripper, move your hand to move it, let go to hand control back. No 3D mouse, no robot on the desk. The same console drives a simulator today and a real arm through the toolchain's inference node later.
-- **Make correction legible:** every intervention is logged with the policy's stated intent, its reported confidence, what the human changed, and the outcome, then auto-labelled in language ("policy was pressing yellow; human moved the gripper 5 cm left and pressed red; failure: wrong target"). The export is LeRobot-shaped so it can feed training.
-- **Make trust measurable:** per task, the console tracks autonomous success rate, intervention rate, time-to-recovery and confidence calibration, and recommends an autonomy level: autonomous, supervised or teleop. That is the "Operate" surface the toolchain roadmap describes.
-- **Make the webcam a safety sensor too:** a hand close to the camera without a pinch means a person is in the zone, so the arm slows. Risky steps wait for approval.
+## Why this, for Microsoft Robotics
 
-## What is in scope for v1
+- Their market is manufacturing and logistics, through Hexagon, KUKA and ABB. This is a line, a cobot and an operator.
+- Their Robot Security & Safety role is about runtime safety monitors. STOP as a gesture is one.
+- Their Human-Robot-AI Interaction role lists gesture and spatial input and "establishing Microsoft's design language for physical AI experiences". This is a design-language proposal with a working prototype.
+- The curb cut: built for a deaf operator, used by everyone on a loud floor. That is Microsoft's own inclusive design playbook.
 
-- A kinematic 5-DOF arm in the browser (SO-101 proportions) with analytic IK and joint speed limits.
-- A BusyBox-style panel: four lit buttons, a toggle switch, a six-position knob, a slider.
-- A scripted policy that executes tasks and fails in realistic, injectable ways: wrong target (affordance confusion), drift, stall, overshoot. It reports intent and confidence; confidence is deliberately miscalibrated on some failure modes so the calibration readout has something to show.
-- Shared autonomy: pinch-to-take-over from the webcam, keyboard fallback, automatic handback with replanning.
-- Natural-language instructions parsed into a task queue with approval thresholds.
-- Episode recorder with language labels and a LeRobot-shaped JSON export.
-- Trust panel with autonomy recommendations.
+## What is in scope
 
-## Out of scope for v1
+- A kinematic 5-DOF arm with a top-down gripper, SO-101 proportions, analytic IK, bounded joint speed.
+- A packing cell: a tray of four parts, a box, an endless pack cycle with a parts count.
+- Sign recognition on the same feature engine as the ASL fingerspelling coach (curl per finger, thumb position scores, palm normal), with per-sign stability windows and cooldowns.
+- Robot modes: running, slow, hold, stopped, plus "that one next".
+- Stack light, captions, a shift log with reaction times, and a keyboard fallback for demos without a camera.
 
-- A learned policy. The point is the product surface around one, not the model.
-- Physics. Contacts are geometric.
-- Cloud. Everything runs in the browser; nothing leaves it.
+## Out of scope
+
+- Learned perception. Rules on landmarks are enough for five signs and make the behaviour explainable.
+- Physics. Grasps are geometric.
+- Two-handed signs and motion signs. The vocabulary is one static hand.
