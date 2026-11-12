@@ -20,13 +20,14 @@ export const GRASP_RADIUS = 0.018;
 
 export interface Part { id: number; color: PartColor; pos: V3; slot: number; held: boolean; placed: boolean }
 
-export interface CellEvent { kind: 'grasp' | 'place' | 'ship' | 'tray'; part?: Part; t: number }
+export interface CellEvent { kind: 'grasp' | 'place' | 'ship' | 'tray' | 'handover'; part?: Part; t: number }
 
 export class Cell {
   parts: Part[] = [];
   held: Part | null = null;
   boxesShipped = 0;
   partsPacked = 0;
+  handedOver = 0;
   trayNo = 0;
   events: CellEvent[] = [];
   private nextId = 1;
@@ -82,12 +83,23 @@ export class Cell {
     return p;
   }
 
-  /** keep a held part under the tip; ship a full box */
+  /** the operator takes the held part: it leaves the cell for good */
+  handOff(t: number): Part | null {
+    const p = this.held;
+    if (!p) return null;
+    p.held = false;
+    this.parts = this.parts.filter((x) => x !== p);
+    this.held = null;
+    this.handedOver++;
+    this.events.push({ kind: 'handover', part: p, t });
+    return p;
+  }
+
+  /** keep a held part under the tip; when every part on the tray is resolved, ship the box and bring a new tray */
   step(tip: V3, t: number): void {
     if (this.held) this.held.pos = v3(tip.x, tip.y - GRIP_OFFSET, tip.z);
-    if (this.placedCount === this.parts.length && !this.held) {
-      this.boxesShipped++;
-      this.events.push({ kind: 'ship', t });
+    if (!this.held && this.parts.every((p) => p.placed)) {
+      if (this.placedCount > 0) { this.boxesShipped++; this.events.push({ kind: 'ship', t }); }
       this.newTray(t);
     }
   }

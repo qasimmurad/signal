@@ -46,15 +46,18 @@ describe('pack cycle', () => {
     const order = ['home', 'to part', 'descend', 'grasp', 'lift', 'to box', 'lower', 'place', 'rise', 'waiting'];
     expect(order.indexOf(cb.phase) <= order.indexOf(ca.phase) || a.cell.partsPacked > b.cell.partsPacked).toBe(true);
   });
-  it('"that one next" re-targets the pick while the gripper is empty', () => {
+  it('GIVE ME diverts the next lifted part to the handover point, the operator takes it, the tray still ships', () => {
     const world = new World();
     const cycle = new Cycle(world.cell);
-    run(world, cycle, 0.15);
-    const yellow = world.cell.parts.find((p) => p.color === 'yellow')!;
-    cycle.requestNext(yellow);
-    expect(cycle.current?.color).toBe('yellow');
-    run(world, cycle, 12);
-    expect(yellow.placed).toBe(true);
-    expect(world.cell.parts.find((p) => p.color === 'red')!.placed).toBe(false);
+    run(world, cycle, 0.5);
+    expect(cycle.requestHandover()).toBe(true);
+    expect(cycle.requestHandover()).toBe(false); // one at a time
+    run(world, cycle, 10);
+    expect(world.cell.handedOver).toBe(1);
+    expect(world.cell.parts).toHaveLength(3);
+    expect(cycle.events.some((e) => e.kind === 'offered')).toBe(true);
+    expect(cycle.events.some((e) => e.kind === 'taken')).toBe(true);
+    run(world, cycle, 30);
+    expect(world.cell.boxesShipped).toBeGreaterThanOrEqual(1);
   });
 });

@@ -4,14 +4,14 @@ import { Stabilizer } from '../signs/recognizer';
 import type { ExtractedFeatures } from '../vision/features';
 
 /** build a feature set from the few numbers the sign specs read */
-function feats(o: { bends: [number, number, number, number]; thumbBend?: number; thumbDirV?: number; thumbV?: number; tipsV?: number; nz?: number; thumbIndex?: number }): ExtractedFeatures {
+function feats(o: { bends: [number, number, number, number]; thumbBend?: number; thumbDirV?: number; thumbV?: number; tipsV?: number; nz?: number; ny?: number; thumbIndex?: number }): ExtractedFeatures {
   const [i, m, r, p] = o.bends;
   const tv = o.tipsV ?? 1.6;
   return {
     curl: { index: 'extended', middle: 'extended', ring: 'extended', pinky: 'extended' },
     bend: { index: i, middle: m, ring: r, pinky: p },
     thumb: { curl: 'extended', bend: o.thumbBend ?? 30, position: 'other', scores: {} },
-    palmFacing: 'forward', palmNormal: { x: 0, y: 0, z: o.nz ?? -0.8 },
+    palmFacing: 'forward', palmNormal: { x: 0, y: o.ny ?? 0, z: o.nz ?? -0.8 },
     fingerDirection: 'up', pointing: { angle: 0, forward: 0, dir: 'up' },
     spread: { 'index-middle': 10, 'middle-ring': 10, 'ring-pinky': 10 },
     touch: { 'thumb-index': o.thumbIndex ?? 1.0, 'thumb-middle': 1, 'thumb-ring': 1, 'thumb-pinky': 1, 'index-middle': 0.3 },
@@ -38,9 +38,16 @@ describe('sign vocabulary', () => {
   it('still reads GO when the fingers are only loosely curled', () => {
     expect(classify(feats({ bends: [150, 160, 170, 160], thumbBend: 40, thumbDirV: 0.8, thumbV: 1.3, tipsV: 0.9 })).name).toBe('GO');
   });
-  it('reads a pinch as SLOW and a lone index as POINT', () => {
+  it('reads a pinch as SLOW', () => {
     expect(classify(feats({ bends: [120, 150, 160, 160], thumbIndex: 0.2 })).name).toBe('SLOW');
-    expect(classify(feats({ bends: [25, 170, 175, 170], thumbIndex: 0.9 })).name).toBe('POINT');
+  });
+  it('reads an open palm facing up as GIVE, even slightly cupped, and never a palm-up fist', () => {
+    expect(classify(feats({ bends: [30, 30, 30, 30], ny: -0.85, nz: 0.1 })).name).toBe('GIVE');
+    expect(classify(feats({ bends: [80, 85, 90, 80], ny: -0.75, nz: 0.2 })).name).toBe('GIVE');
+    expect(classify(feats({ bends: [200, 200, 200, 200], thumbBend: 100, ny: -0.85, nz: 0.1, tipsV: 0.7 })).name).toBeNull();
+  });
+  it('a tilted open hand never reads as GIVE: STOP wins or nothing fires', () => {
+    expect(classify(feats({ bends: [30, 30, 30, 30], ny: -0.5, nz: -0.5 })).name).not.toBe('GIVE');
   });
   it('names the nearest sign even when not confident', () => {
     const c = classify(feats({ bends: [110, 110, 110, 110] }));

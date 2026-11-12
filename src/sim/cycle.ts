@@ -1,29 +1,38 @@
 /**
  * The pack cycle: take the next part from the tray, put it in the box, repeat forever. It is a
  * state machine over waypoints with three modes that a sign can set: running, slow, stopped.
- * STOP freezes the tip where it is; GO resumes from the same phase. "That one next"
- * re-targets the pick while the gripper is empty, or queues it for after the current place.
+ * STOP freezes the tip where it is; GO resumes from the same phase. GIVE ME asks for a handover:
+ * the next part the gripper lifts goes to the front of the cell and is held out until it is taken.
  */
 import { type V3, v3, dist, copy } from './vec';
 import { type Cell, type Part, BOX_SLOTS, GRIP_OFFSET } from './cell';
 
 export type Mode = 'running' | 'slow' | 'stopped';
-export type Phase = 'home' | 'to part' | 'descend' | 'grasp' | 'lift' | 'to box' | 'lower' | 'place' | 'rise' | 'waiting';
+export type Phase = 'home' | 'to part' | 'descend' | 'grasp' | 'lift' | 'to box' | 'lower' | 'place' | 'rise' | 'waiting' | 'to hand' | 'offer' | 'offering';
 
 export const HOME = v3(0.0, 0.15, -0.14);
+/** where the robot holds a part out for the operator: the front of the cell, toward the camera */
+export const HANDOVER = v3(0.02, 0.1, -0.07);
 const LIFT_Y = 0.11;
+const CARRY_Y = 0.13;
 const REACH = 0.006;
 const GRIP_HOLD = 0.25;
 const TRAY_WAIT = 1.0;
+/** how long the part is held out before the operator is assumed to have taken it */
+export const OFFER_HOLD = 1.8;
 
 export const SPEED: Record<Mode, number> = { running: 1, slow: 0.3, stopped: 0 };
+
+export interface CycleEvent { kind: 'offered' | 'taken'; part: Part }
 
 export class Cycle {
   mode: Mode = 'running';
   phase: Phase = 'home';
   gripperClosed = false;
   current: Part | null = null;
-  requested: Part | null = null;
+  /** a GIVE ME has been seen and not yet fulfilled */
+  handoverPending = false;
+  events: CycleEvent[] = [];
   private target: V3 = copy(HOME);
   private frozen: V3 | null = null;
   private wait = 0;
@@ -32,6 +41,7 @@ export class Cycle {
   constructor(private cell: Cell) {}
 
   get frozenNow(): boolean { return this.mode === 'stopped'; }
+  get offering(): boolean { return this.phase === 'to hand' || this.phase === 'offer' || this.phase === 'offering'; }
 
   setMode(m: Mode, tip: V3): void {
     if (m === this.mode) return;
@@ -40,22 +50,16 @@ export class Cycle {
     this.mode = m;
   }
 
-  /** "that one next" */
-  requestNext(p: Part): void {
-    if (p.placed) return;
-    this.requested = p;
-    if (!this.cell.held && (this.phase === 'to part' || this.phase === 'descend' || this.phase === 'home' || this.phase === 'waiting')) {
-      this.current = p;
-      this.phase = 'to part';
-      this.target = v3(p.pos.x, LIFT_Y, p.pos.z);
-      this.requested = null;
-    }
+  /** GIVE ME: the next part the gripper lifts comes to the operator instead of the box */
+  requestHandover(): boolean {
+    if (this.handoverPending || this.offering) return false;
+    this.handoverPending = true;
+    return true;
   }
 
   private pickNext(): Part | null {
     const rem = this.cell.remaining;
     if (!rem.length) return null;
-    if (this.requested && !this.requested.placed && !this.requested.held) { const p = this.requested; this.requested = null; return p; }
     return rem.slice().sort((a, b) => a.slot - b.slot)[0];
   }
 
@@ -99,10 +103,14 @@ export class Cycle {
         break;
       }
       case 'lift': {
-        if (reached) { this.phase = 'to box'; this.target = v3(this.boxSlot.x, LIFT_Y, this.boxSlot.z); }
+        if (reached) {
+          if (this.handoverPending) { this.phase = 'to hand'; this.target = v3(HANDOVER.x, CARRY_Y, HANDOVER.z); }
+          else { this.phase = 'to box'; this.target = v3(this.boxSlot.x, LIFT_Y, this.boxSlot.z); }
+        }
         break;
       }
       case 'to box': {
+        if (this.handoverPending) { this.phase = 'to hand'; this.target = v3(HANDOVER.x, CARRY_Y, HANDOVER.z); break; }
         if (reached) { this.phase = 'lower'; this.target = v3(this.boxSlot.x, this.boxSlot.y + GRIP_OFFSET, this.boxSlot.z); }
         break;
       }
@@ -113,6 +121,24 @@ export class Cycle {
       case 'place': {
         this.wait -= dt;
         if (this.wait <= 0) { this.cell.release(tip, t); this.current = null; this.phase = 'rise'; this.target = v3(tip.x, LIFT_Y, tip.z); }
+        break;
+      }
+      case 'to hand': {
+        if (reached) { this.phase = 'offer'; this.target = copy(HANDOVER); }
+        break;
+      }
+      case 'offer': {
+        if (reached) { this.phase = 'offering'; this.wait = OFFER_HOLD; if (this.current) this.events.push({ kind: 'offered', part: this.current }); }
+        break;
+      }
+      case 'offering': {
+        this.wait -= dt;
+        if (this.wait <= 0) {
+          const p = this.cell.handOff(t);
+          if (p) this.events.push({ kind: 'taken', part: p });
+          this.gripperClosed = false; this.handoverPending = false; this.current = null;
+          this.phase = 'rise'; this.target = v3(tip.x, CARRY_Y, tip.z);
+        }
         break;
       }
       case 'rise': {

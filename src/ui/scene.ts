@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { World } from '../sim/world';
-import type { Cycle, Mode } from '../sim/cycle';
+import { HANDOVER, type Cycle, type Mode } from '../sim/cycle';
 import { PART, TRAY, BOX, type Part, type PartColor } from '../sim/cell';
 import type { V3 } from '../sim/vec';
 
@@ -31,8 +31,7 @@ export class Scene {
   private partMeshes = new Map<number, THREE.Mesh>();
   private partsGroup = new THREE.Group();
   private lamps: Record<'red' | 'amber' | 'green', THREE.Mesh>;
-  private ringCandidate: THREE.Mesh;
-  private ringSelected: THREE.Mesh;
+  private pad: THREE.Mesh;
   private ghost: THREE.Mesh;
   private haloRing: THREE.Mesh;
 
@@ -92,11 +91,11 @@ export class Scene {
     const lamp = (color: number, y: number) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.028, 24), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.3 })); m.position.set(0.0, y, -0.36); this.scene.add(m); return m; };
     this.lamps = { green: lamp(0x3bff7a, 0.145), amber: lamp(0xffa02e, 0.175), red: lamp(0xff3b3b, 0.205) };
 
-    // rings
-    this.ringCandidate = new THREE.Mesh(new THREE.RingGeometry(0.022, 0.026, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
-    this.ringCandidate.rotation.x = -Math.PI / 2; this.ringCandidate.visible = false; this.scene.add(this.ringCandidate);
-    this.ringSelected = new THREE.Mesh(new THREE.RingGeometry(0.024, 0.03, 32), new THREE.MeshBasicMaterial({ color: 0x19d3ff, transparent: true, opacity: 0.95, side: THREE.DoubleSide }));
-    this.ringSelected.rotation.x = -Math.PI / 2; this.ringSelected.visible = false; this.scene.add(this.ringSelected);
+    // handover pad: where a part is held out for the operator
+    this.pad = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.003, 40), new THREE.MeshStandardMaterial({ color: 0x19d3ff, emissive: 0x19d3ff, emissiveIntensity: 0.15, transparent: true, opacity: 0.35, roughness: 0.6 }));
+    this.pad.position.set(HANDOVER.x, 0.0015, HANDOVER.z); this.scene.add(this.pad);
+    const padRing = new THREE.Mesh(new THREE.RingGeometry(0.045, 0.049, 40), new THREE.MeshBasicMaterial({ color: 0x19d3ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+    padRing.rotation.x = -Math.PI / 2; padRing.position.set(HANDOVER.x, 0.002, HANDOVER.z); this.scene.add(padRing);
     this.ghost = new THREE.Mesh(new THREE.SphereGeometry(0.006, 12, 10), new THREE.MeshBasicMaterial({ color: 0x19d3ff, wireframe: true, transparent: true, opacity: 0.5 })); this.scene.add(this.ghost);
 
     this.resize();
@@ -123,7 +122,7 @@ export class Scene {
     for (const [id, m] of this.partMeshes) if (!seen.has(id)) { this.partsGroup.remove(m); this.partMeshes.delete(id); }
   }
 
-  update(world: World, cycle: Cycle, mode: Mode, candidate: Part | null, selected: Part | null): void {
+  update(world: World, cycle: Cycle, mode: Mode): void {
     const fk = world.arm.pose;
     alignCylinder(this.links[0], fk.shoulder, fk.elbow);
     alignCylinder(this.links[1], fk.elbow, fk.wrist);
@@ -147,10 +146,9 @@ export class Scene {
     halo.color.setHex(mode === 'stopped' ? 0xff3b3b : mode === 'running' ? 0x3bff7a : 0xffa02e);
     halo.opacity = 0.5;
 
-    this.ringCandidate.visible = !!candidate && candidate !== selected;
-    if (candidate) this.ringCandidate.position.set(candidate.pos.x, 0.0075, candidate.pos.z);
-    this.ringSelected.visible = !!selected;
-    if (selected) this.ringSelected.position.set(selected.pos.x, 0.0075, selected.pos.z);
+    const pm = this.pad.material as THREE.MeshStandardMaterial;
+    const pulse = cycle.offering || cycle.handoverPending ? 0.6 + 0.5 * Math.sin(performance.now() / 160) : 0.15;
+    pm.emissiveIntensity += (pulse - pm.emissiveIntensity) * 0.2;
     this.ghost.position.copy(V(world.target));
     this.ghost.visible = mode === 'running' || mode === 'slow';
   }

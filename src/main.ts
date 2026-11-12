@@ -1,12 +1,11 @@
 /**
  * Signal: a cobot that reads hand signs. A simulated arm packs parts into boxes. Four one-handed
- * signs from a webcam control it: STOP, GO, SLOW and "that one". The robot answers on its
- * stack light and with a caption, and the screen measures how fast it obeyed.
+ * signs from a webcam control it: STOP, GO, SLOW and GIVE ME. The robot answers on its stack light
+ * and with a caption, and the screen measures how fast it obeyed.
  */
 import './style.css';
 import { World } from './sim/world';
-import { Cycle, SPEED, type Mode } from './sim/cycle';
-import { TRAY, type Part } from './sim/cell';
+import { Cycle, SPEED } from './sim/cycle';
 import { SignRecognizer, type SignFrame } from './signs/recognizer';
 import { SIGNS, type SignName } from './signs/vocabulary';
 import { Scene } from './ui/scene';
@@ -22,20 +21,16 @@ const recognizer = new SignRecognizer();
 const scene = new Scene(document.getElementById('scene') as HTMLCanvasElement);
 const hud = new Hud();
 
-let signFrame: SignFrame = { fired: null, active: null, firstSeenMs: null, frames: 0, score: 0, scores: {}, nearest: null, pointer: null, features: null };
+let signFrame: SignFrame = { fired: null, active: null, firstSeenMs: null, frames: 0, score: 0, scores: {}, nearest: null, features: null };
 let lastHand: HandFrame[] = [];
 let signsRead = 0;
 const reactions: number[] = [];
 let lastReaction: number | null = null;
 /** a STOP is being timed: from the first frame the hand was in the sign until the tip stands still */
 let stopTimer: { sinceMs: number } | null = null;
-let candidate: Part | null = null;
-let candidateSince = 0;
-let selected: Part | null = null;
 let showDebug = false;
 
 const nowMs = () => performance.now();
-
 function median(xs: number[]): number | null { if (!xs.length) return null; const s = xs.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; }
 
 function apply(sign: SignName, firstSeenMs: number | null, source: 'sign' | 'key'): void {
@@ -61,31 +56,15 @@ function apply(sign: SignName, firstSeenMs: number | null, source: 'sign' | 'key
       detail = 'a third of the speed';
       hud.showCaption('SLOW', 'SLOW', 'robot running at a third of its speed');
       break;
-    case 'POINT':
-      return; // handled continuously
+    case 'GIVE': {
+      const ok = cycle.requestHandover();
+      detail = !ok ? 'already bringing you one' : prev === 'stopped' ? 'will bring you the next part after GO' : 'bringing you the next part';
+      hud.showCaption('GIVE', 'GIVE ME', detail);
+      break;
+    }
   }
   if (source === 'sign') signsRead++;
-  hud.addLog({ t: world.t, sign: source === 'key' ? 'KEY' : sign, detail: source === 'key' ? `${sign.toLowerCase()} · ${detail}` : detail });
-}
-
-/** map the pointing fingertip onto the tray grid and pick the nearest remaining part */
-function partUnderPointer(p: { x: number; y: number }): Part | null {
-  const rem = world.cell.remaining;
-  if (!rem.length) return null;
-  const gx = TRAY.center.x + (p.x - 0.5) * 0.22; // left/right of the frame → left/right of the tray
-  const gz = TRAY.center.z + (p.y - 0.5) * 0.22; // high in the frame → far row
-  let best: Part | null = null, bd = Infinity;
-  for (const part of rem) { const d = Math.hypot(part.pos.x - gx, part.pos.z - gz); if (d < bd) { bd = d; best = part; } }
-  return best;
-}
-
-function thatOne(part: Part, source: 'sign' | 'key'): void {
-  if (part.placed) return;
-  selected = part;
-  cycle.requestNext(part);
-  if (source === 'sign') signsRead++;
-  hud.showCaption('POINT', 'THAT ONE', `the ${part.color} part goes next`);
-  hud.addLog({ t: world.t, sign: source === 'key' ? 'KEY' : 'POINT', detail: `${part.color} part next` });
+  hud.addLog({ t: world.t, sign: source === 'key' ? 'KEY' : sign, detail: source === 'key' ? `${SIGNS.find((s) => s.name === sign)!.label.toLowerCase()} · ${detail}` : detail });
 }
 
 /** fixed simulation step, so sim time tracks wall time whatever the display's frame rate */
@@ -95,14 +74,6 @@ let last = nowMs();
 function loop(): void {
   const t = nowMs();
   acc += Math.min(0.6, (t - last) / 1000); last = t;
-
-  // pointing selects continuously; a steady point on the same part for 600 ms confirms it
-  if (signFrame.active === 'POINT' && signFrame.pointer) {
-    const c = partUnderPointer(signFrame.pointer);
-    if (c !== candidate) { candidate = c; candidateSince = t; }
-    else if (candidate && t - candidateSince > 600 && selected !== candidate) thatOne(candidate, 'sign');
-  } else { candidate = null; }
-  if (selected && (selected.placed || selected.held)) selected = null;
 
   world.speedScale = SPEED[cycle.mode];
   while (acc >= STEP) {
@@ -115,11 +86,15 @@ function loop(): void {
       hud.addLog({ t: world.t, sign: 'STOP', detail: 'standstill', reactionMs: ms });
     }
   }
+  for (const e of cycle.events.splice(0)) {
+    if (e.kind === 'offered') hud.showCaption('GIVE', 'HERE YOU GO', `take the ${e.part.color} part`);
+    if (e.kind === 'taken') hud.addLog({ t: world.t, sign: 'GIVE', detail: `${e.part.color} part taken · back to packing` });
+  }
 
-  scene.update(world, cycle, cycle.mode, candidate, selected);
+  scene.update(world, cycle, cycle.mode);
   scene.render();
   hud.setMode(cycle.mode, cycle.phase);
-  hud.setStats({ boxes: world.cell.boxesShipped, parts: world.cell.partsPacked, signs: signsRead, stops: reactions.length, medianReaction: median(reactions), lastReaction });
+  hud.setStats({ boxes: world.cell.boxesShipped, parts: world.cell.partsPacked, handovers: world.cell.handedOver, signs: signsRead, stops: reactions.length, medianReaction: median(reactions), lastReaction });
   if (showDebug) {
     const f = signFrame.features;
     const sc = SIGNS.map((s) => `${s.name.padEnd(5)} ${(signFrame.scores[s.name] ?? 0).toFixed(2)}`).join('  ');
@@ -134,7 +109,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 's') apply('STOP', null, 'key');
   if (k === 'g') apply('GO', null, 'key');
   if (k === 'l') apply('SLOW', null, 'key');
-  if (k >= '1' && k <= '4') { const p = world.cell.parts.find((x) => x.slot === Number(k) - 1 && !x.placed); if (p) thatOne(p, 'key'); }
+  if (k === 'h') apply('GIVE', null, 'key');
   if (k === 'd') { showDebug = !showDebug; if (!showDebug) hud.setDebug(null); }
   if (k === 'c') void enableCamera();
 });
@@ -156,7 +131,7 @@ async function enableCamera(): Promise<void> {
       signFrame = recognizer.update(lastHand, ms);
       hud.setSigns(signFrame);
       hud.drawHand(lastHand, signFrame);
-      if (signFrame.fired && signFrame.fired !== 'POINT') apply(signFrame.fired, signFrame.firstSeenMs, 'sign');
+      if (signFrame.fired) apply(signFrame.fired, signFrame.firstSeenMs, 'sign');
     });
   } catch (e) {
     camOn = false;
@@ -171,5 +146,5 @@ async function enableCamera(): Promise<void> {
 }
 document.getElementById('btn-cam')!.addEventListener('click', () => void enableCamera());
 
-hud.toast('Show ✋ to stop the robot. Keys S G L and 1–4 work without a camera.');
+hud.toast('Show ✋ to stop the robot. Keys S G L H work without a camera.');
 requestAnimationFrame(loop);

@@ -29,7 +29,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 .caption[data-kind=STOP] #caption-text { color: var(--red); }
 .caption[data-kind=SLOW] #caption-text { color: var(--amber); }
 .caption[data-kind=GO] #caption-text { color: var(--green); }
-.caption[data-kind=POINT] #caption-text { color: var(--cyan); }
+.caption[data-kind=GIVE] #caption-text { color: var(--cyan); }
 
 .col { position: fixed; top: 60px; bottom: 12px; width: 330px; display: flex; flex-direction: column; gap: 10px; overflow: auto; z-index: 4; scrollbar-width: thin; }
 .col.left { left: 12px; }
@@ -67,7 +67,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 #log li { display: grid; grid-template-columns: 54px 1fr auto; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(36,48,73,0.5); font-family: var(--mono); font-size: 11px; }
 #log .t { color: var(--faint); }
 #log .s { font-weight: 600; letter-spacing: 0.06em; }
-#log .s.STOP { color: var(--red); } #log .s.SLOW { color: var(--amber); } #log .s.GO { color: var(--green); } #log .s.POINT { color: var(--cyan); }
+#log .s.STOP { color: var(--red); } #log .s.SLOW { color: var(--amber); } #log .s.GO { color: var(--green); } #log .s.GIVE { color: var(--cyan); }
 #log .d { color: var(--dim); font-family: var(--sans); font-size: 12px; }
 #log .r { color: var(--faint); }
 

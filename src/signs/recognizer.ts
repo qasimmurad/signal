@@ -6,7 +6,6 @@
  */
 import type { HandFrame } from '../vision/types';
 import { extractFeatures, type ExtractedFeatures } from '../vision/features';
-import { INDEX_TIP } from '../vision/landmarks';
 import { classify, SPEC, WINDOW, type SignName } from './vocabulary';
 
 export interface Stable { fired: SignName | null; active: SignName | null; firstSeenMs: number | null; frames: number }
@@ -40,8 +39,6 @@ export interface SignFrame extends Stable {
   scores: Partial<Record<SignName, number>>;
   /** best-scoring sign even when not confident, with its score, for coaching */
   nearest: { name: SignName; score: number } | null;
-  /** index fingertip in mirrored, normalized image coords while pointing */
-  pointer: { x: number; y: number } | null;
   features: ExtractedFeatures | null;
 }
 
@@ -50,12 +47,10 @@ export class SignRecognizer {
 
   update(frames: HandFrame[], nowMs: number): SignFrame {
     const f = frames[0];
-    if (!f) return { ...this.stab.update(null, nowMs), score: 0, scores: {}, nearest: null, pointer: null, features: null };
+    if (!f) return { ...this.stab.update(null, nowMs), score: 0, scores: {}, nearest: null, features: null };
     const feats = extractFeatures(f);
     const c = classify(feats);
     const st = this.stab.update(c.name, nowMs);
-    const tip = f.landmarks[INDEX_TIP];
-    const pointer = st.active === 'POINT' ? { x: 1 - tip.x, y: tip.y } : null;
-    return { ...st, score: c.score, scores: c.scores, nearest: { name: c.best, score: c.score }, pointer, features: feats };
+    return { ...st, score: c.score, scores: c.scores, nearest: { name: c.best, score: c.score }, features: feats };
   }
 }

@@ -3,7 +3,7 @@ import { SIGNS, type SignName } from '../signs/vocabulary';
 import type { SignFrame } from '../signs/recognizer';
 import type { Mode, Phase } from '../sim/cycle';
 import type { HandFrame } from '../vision/types';
-import { HAND_CONNECTIONS, INDEX_TIP } from '../vision/landmarks';
+import { HAND_CONNECTIONS } from '../vision/landmarks';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -22,7 +22,7 @@ export class Hud {
   constructor() {
     for (const s of SIGNS) {
       const li = document.createElement('li');
-      li.innerHTML = `<span class="e">${s.emoji}</span><span class="n">${s.name === 'POINT' ? 'THAT ONE' : s.name}<small>${s.hand}</small></span><span class="r">${s.robot}</span><span class="bar"><i></i></span>`;
+      li.innerHTML = `<span class="e">${s.emoji}</span><span class="n">${s.label}<small>${s.hand}</small></span><span class="r">${s.robot}</span><span class="bar"><i></i></span>`;
       this.vocab.appendChild(li); this.rows.set(s.name, li);
     }
   }
@@ -49,7 +49,7 @@ export class Hud {
       li.classList.toggle('active', sf.active === name);
       if (sf.fired === name) { li.classList.add('fired'); setTimeout(() => li.classList.remove('fired'), 600); }
     }
-    const label = (n: SignName) => (n === 'POINT' ? '☝️ THAT ONE' : `${SIGNS.find((s) => s.name === n)!.emoji} ${n}`);
+    const label = (n: SignName) => { const s = SIGNS.find((x) => x.name === n)!; return `${s.emoji} ${s.label}`; };
     if (sf.active) this.camSign.textContent = label(sf.active);
     else if (sf.nearest && sf.nearest.score > 0.2) this.camSign.textContent = `almost ${label(sf.nearest.name)} · ${Math.round(sf.nearest.score * 100)}%`;
     else this.camSign.textContent = sf.features ? 'no sign' : '';
@@ -58,8 +58,8 @@ export class Hud {
     this.camBox.classList.toggle('STOP', sf.active === 'STOP');
   }
 
-  setStats(s: { boxes: number; parts: number; signs: number; stops: number; medianReaction: number | null; lastReaction: number | null }): void {
-    this.kpis.innerHTML = [['boxes shipped', s.boxes], ['parts packed', s.parts], ['signs read', s.signs]].map(([l, v]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
+  setStats(s: { boxes: number; parts: number; handovers: number; signs: number; stops: number; medianReaction: number | null; lastReaction: number | null }): void {
+    this.kpis.innerHTML = [['boxes shipped', s.boxes], ['parts packed', s.parts], ['handed over', s.handovers], ['signs read', s.signs]].map(([l, v]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('');
     const r = s.lastReaction ?? s.medianReaction;
     this.reaction.innerHTML = `<b>${r === null ? '–' : Math.round(r)}</b><span>ms from STOP sign to standstill${s.medianReaction !== null && s.stops > 1 ? ` · median ${Math.round(s.medianReaction)} over ${s.stops} stops` : ''}</span>`;
   }
@@ -67,7 +67,8 @@ export class Hud {
   addLog(e: LogEntry): void {
     const li = document.createElement('li');
     const mm = Math.floor(e.t / 60), ss = Math.floor(e.t % 60);
-    li.innerHTML = `<span class="t">${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}</span><span><span class="s ${e.sign}">${e.sign === 'POINT' ? 'THAT ONE' : e.sign}</span> <span class="d">${e.detail}</span></span><span class="r">${e.reactionMs !== undefined ? `${Math.round(e.reactionMs)} ms` : ''}</span>`;
+    const name = e.sign === 'KEY' ? 'KEY' : SIGNS.find((s) => s.name === e.sign)!.label;
+    li.innerHTML = `<span class="t">${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}</span><span><span class="s ${e.sign}">${name}</span> <span class="d">${e.detail}</span></span><span class="r">${e.reactionMs !== undefined ? `${Math.round(e.reactionMs)} ms` : ''}</span>`;
     this.log.prepend(li);
     while (this.log.children.length > 60) this.log.lastElementChild?.remove();
   }
@@ -95,6 +96,5 @@ export class Hud {
     for (const [a, b] of HAND_CONNECTIONS) { const p = P(a), q = P(b); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); }
     g.stroke();
     for (let i = 0; i < 21; i++) { const p = P(i); g.beginPath(); g.arc(p.x, p.y, 2.5, 0, Math.PI * 2); g.fill(); }
-    if (sf.pointer) { const p = P(INDEX_TIP); g.beginPath(); g.arc(p.x, p.y, 12, 0, Math.PI * 2); g.strokeStyle = '#19d3ff'; g.stroke(); }
   }
 }
