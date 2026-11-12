@@ -28,6 +28,8 @@ const reactions: number[] = [];
 let lastReaction: number | null = null;
 /** a STOP is being timed: from the first frame the hand was in the sign until the tip stands still */
 let stopTimer: { sinceMs: number } | null = null;
+/** when the last STOP fired, so a SLOW right after it reads as "two hands, the second arrived late" */
+let lastStopMs = -Infinity;
 let showDebug = false;
 
 const nowMs = () => performance.now();
@@ -41,6 +43,7 @@ function apply(sign: SignName, firstSeenMs: number | null, source: 'sign' | 'key
     case 'STOP':
       cycle.setMode('stopped', tip);
       stopTimer = { sinceMs: firstSeenMs ?? nowMs() };
+      lastStopMs = nowMs();
       detail = 'robot stopped';
       hud.showCaption('STOP', 'STOP', 'robot stopped · show 👍 to resume');
       break;
@@ -51,9 +54,9 @@ function apply(sign: SignName, firstSeenMs: number | null, source: 'sign' | 'key
       hud.showCaption('GO', 'GO', detail);
       break;
     case 'SLOW':
-      if (prev === 'stopped') { detail = 'ignored while stopped'; break; }
+      if (prev === 'stopped' && nowMs() - lastStopMs > 700) { detail = 'ignored while stopped'; break; }
       cycle.setMode('slow', tip);
-      detail = 'a third of the speed';
+      detail = prev === 'stopped' ? 'both hands: slow, not stop' : 'a third of the speed';
       hud.showCaption('SLOW', 'SLOW', 'robot running at a third of its speed');
       break;
     case 'GIVE': {
@@ -124,7 +127,7 @@ async function enableCamera(): Promise<void> {
     hud.setCam('starting camera…', true);
     await startCamera(video, { width: 640, height: 480, fps: 30 });
     hud.setCam('loading hand model…', true);
-    const tracker = await HandTracker.create({ numHands: 1 });
+    const tracker = await HandTracker.create({ numHands: 2 });
     hud.setCam(`reading signs · ${tracker.delegate}`, true);
     onEveryVideoFrame(video, (ms) => {
       lastHand = tracker.detect(video, ms);
@@ -146,5 +149,5 @@ async function enableCamera(): Promise<void> {
 }
 document.getElementById('btn-cam')!.addEventListener('click', () => void enableCamera());
 
-hud.toast('Show ✋ to stop the robot. Keys S G L H work without a camera.');
+hud.toast('Show ✋ to stop the robot, 🙌 to slow it. Keys S G L H work without a camera.');
 requestAnimationFrame(loop);

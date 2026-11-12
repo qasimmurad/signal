@@ -4,7 +4,7 @@ import { Stabilizer } from '../signs/recognizer';
 import type { ExtractedFeatures } from '../vision/features';
 
 /** build a feature set from the few numbers the sign specs read */
-function feats(o: { bends: [number, number, number, number]; thumbBend?: number; thumbDirV?: number; thumbV?: number; tipsV?: number; nz?: number; ny?: number; thumbIndex?: number }): ExtractedFeatures {
+function feats(o: { bends: [number, number, number, number]; thumbBend?: number; thumbDirV?: number; thumbV?: number; tipsV?: number; nz?: number; ny?: number; angle?: number }): ExtractedFeatures {
   const [i, m, r, p] = o.bends;
   const tv = o.tipsV ?? 1.6;
   return {
@@ -12,45 +12,47 @@ function feats(o: { bends: [number, number, number, number]; thumbBend?: number;
     bend: { index: i, middle: m, ring: r, pinky: p },
     thumb: { curl: 'extended', bend: o.thumbBend ?? 30, position: 'other', scores: {} },
     palmFacing: 'forward', palmNormal: { x: 0, y: o.ny ?? 0, z: o.nz ?? -0.8 },
-    fingerDirection: 'up', pointing: { angle: 0, forward: 0, dir: 'up' },
+    fingerDirection: 'up', pointing: { angle: o.angle ?? 0, forward: 0, dir: 'up' },
     spread: { 'index-middle': 10, 'middle-ring': 10, 'ring-pinky': 10 },
-    touch: { 'thumb-index': o.thumbIndex ?? 1.0, 'thumb-middle': 1, 'thumb-ring': 1, 'thumb-pinky': 1, 'index-middle': 0.3 },
+    touch: { 'thumb-index': 1.0, 'thumb-middle': 1, 'thumb-ring': 1, 'thumb-pinky': 1, 'index-middle': 0.3 },
     crossed: '', palmWidth: 0.08, hand: 'Right',
     thumbLocal: { u: 0.5, v: o.thumbV ?? 0.8, n: 0 },
     thumbDir: { u: 0.3, v: o.thumbDirV ?? 0.2, n: 0 },
     tipsV: { index: tv, middle: tv, ring: tv, pinky: tv },
   };
 }
+const open = (nz = -0.8) => feats({ bends: [20, 25, 20, 30], nz });
+const fist = () => feats({ bends: [200, 210, 220, 200], thumbBend: 100, thumbDirV: -0.2, thumbV: 0.9, tipsV: 0.7 });
+const thumbsUp = () => feats({ bends: [200, 210, 220, 200], thumbBend: 25, thumbDirV: 0.9, thumbV: 1.4, tipsV: 0.7 });
+const oneFinger = (angle = 5) => feats({ bends: [25, 170, 175, 170], angle });
 
 describe('sign vocabulary', () => {
-  it('reads a flat hand toward the camera as STOP, either side', () => {
-    expect(classify(feats({ bends: [20, 25, 20, 30], nz: -0.8 })).name).toBe('STOP');
-    expect(classify(feats({ bends: [20, 25, 20, 30], nz: 0.7 })).name).toBe('STOP');
-    expect(classify(feats({ bends: [20, 25, 20, 30], nz: 0.05 })).name).toBeNull(); // edge-on: not a stop
+  it('one flat hand toward the camera is STOP, either side, even relaxed', () => {
+    expect(classify([open(-0.8)]).name).toBe('STOP');
+    expect(classify([open(0.7)]).name).toBe('STOP');
+    expect(classify([feats({ bends: [60, 55, 50, 65], nz: -0.6 })]).name).toBe('STOP');
+    expect(classify([open(0.05)]).name).toBeNull(); // edge-on
   });
-  it('tolerates a relaxed open hand', () => {
-    expect(classify(feats({ bends: [60, 55, 50, 65], nz: -0.6 })).name).toBe('STOP');
+  it('two open hands are SLOW and outrank STOP', () => {
+    expect(classify([open(), open()]).name).toBe('SLOW');
+    expect(classify([open(), open(0.7)]).name).toBe('SLOW');
   });
-  it('reads a thumbs up as GO and a plain fist as nothing', () => {
-    expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 25, thumbDirV: 0.9, thumbV: 1.4, tipsV: 0.7 })).name).toBe('GO');
-    expect(classify(feats({ bends: [200, 210, 220, 200], thumbBend: 100, thumbDirV: -0.2, thumbV: 0.9, tipsV: 0.7 })).name).toBeNull();
+  it('one open hand next to a fist is still STOP, not SLOW', () => {
+    expect(classify([open(), fist()]).name).toBe('STOP');
   });
-  it('still reads GO when the fingers are only loosely curled', () => {
-    expect(classify(feats({ bends: [150, 160, 170, 160], thumbBend: 40, thumbDirV: 0.8, thumbV: 1.3, tipsV: 0.9 })).name).toBe('GO');
+  it('a thumbs up is GO from either hand, a plain fist is nothing', () => {
+    expect(classify([thumbsUp()]).name).toBe('GO');
+    expect(classify([fist(), thumbsUp()]).name).toBe('GO');
+    expect(classify([fist()]).name).toBeNull();
+    expect(classify([feats({ bends: [150, 160, 170, 160], thumbBend: 40, thumbDirV: 0.8, thumbV: 1.3, tipsV: 0.9 })]).name).toBe('GO');
   });
-  it('reads a pinch as SLOW', () => {
-    expect(classify(feats({ bends: [120, 150, 160, 160], thumbIndex: 0.2 })).name).toBe('SLOW');
-  });
-  it('reads an open palm facing up as GIVE, even slightly cupped, and never a palm-up fist', () => {
-    expect(classify(feats({ bends: [30, 30, 30, 30], ny: -0.85, nz: 0.1 })).name).toBe('GIVE');
-    expect(classify(feats({ bends: [80, 85, 90, 80], ny: -0.75, nz: 0.2 })).name).toBe('GIVE');
-    expect(classify(feats({ bends: [200, 200, 200, 200], thumbBend: 100, ny: -0.85, nz: 0.1, tipsV: 0.7 })).name).toBeNull();
-  });
-  it('a tilted open hand never reads as GIVE: STOP wins or nothing fires', () => {
-    expect(classify(feats({ bends: [30, 30, 30, 30], ny: -0.5, nz: -0.5 })).name).not.toBe('GIVE');
+  it('one finger up is GIVE ME; the same finger pointing sideways is not', () => {
+    expect(classify([oneFinger(5)]).name).toBe('GIVE');
+    expect(classify([oneFinger(350)]).name).toBe('GIVE');
+    expect(classify([oneFinger(90)]).name).not.toBe('GIVE');
   });
   it('names the nearest sign even when not confident', () => {
-    const c = classify(feats({ bends: [110, 110, 110, 110] }));
+    const c = classify([feats({ bends: [110, 110, 110, 110] })]);
     expect(c.name).toBeNull();
     expect(c.best).toBeDefined();
   });

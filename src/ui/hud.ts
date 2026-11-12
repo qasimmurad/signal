@@ -87,14 +87,14 @@ export class Hud {
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     const g = c.getContext('2d')!;
     g.clearRect(0, 0, w, h);
-    const f = frames[0];
-    if (!f) return;
-    const P = (i: number) => ({ x: (1 - f.landmarks[i].x) * w, y: f.landmarks[i].y * h });
     const color = sf.active === 'STOP' ? '#e37d80' : sf.active ? '#62abf5' : 'rgba(255,255,255,0.7)';
-    g.lineWidth = 2; g.strokeStyle = color; g.fillStyle = color;
-    g.beginPath();
-    for (const [a, b] of HAND_CONNECTIONS) { const p = P(a), q = P(b); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); }
-    g.stroke();
-    for (let i = 0; i < 21; i++) { const p = P(i); g.beginPath(); g.arc(p.x, p.y, 2.5, 0, Math.PI * 2); g.fill(); }
+    for (const f of frames.slice(0, 2)) {
+      const P = (i: number) => ({ x: (1 - f.landmarks[i].x) * w, y: f.landmarks[i].y * h });
+      g.lineWidth = 2; g.strokeStyle = color; g.fillStyle = color;
+      g.beginPath();
+      for (const [a, b] of HAND_CONNECTIONS) { const p = P(a), q = P(b); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); }
+      g.stroke();
+      for (let i = 0; i < 21; i++) { const p = P(i); g.beginPath(); g.arc(p.x, p.y, 2.5, 0, Math.PI * 2); g.fill(); }
+    }
   }
 }

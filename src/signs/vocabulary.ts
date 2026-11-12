@@ -1,8 +1,10 @@
 /**
- * Four one-handed signs, scored on the same features the ASL fingerspelling coach uses: total bend
- * per finger, thumb geometry in the palm frame, the palm normal and fingertip contacts.
- * Each score is 0..1 and soft, so a sign degrades gracefully instead of flickering. Each sign is
- * built to look nothing like the other three: open hand to the lens, thumb up, pinch, palm up.
+ * Four signs, scored on the same features the ASL fingerspelling coach uses: total bend per finger,
+ * thumb geometry in the palm frame, the palm normal and the pointing direction. Each score is 0..1
+ * and soft, so a sign degrades gracefully instead of flickering. The four are built from the two
+ * cues hand tracking gets right most often, "which fingers are open" and "is the palm flat to the
+ * lens", and each looks nothing like the others: one open hand, a thumb up, two open hands, one
+ * finger up.
  */
 import type { ExtractedFeatures } from '../vision/features';
 import { smooth } from '../vision/landmarks';
@@ -15,6 +17,7 @@ export interface SignSpec {
   /** what the screen calls it */
   label: string;
   emoji: string;
+  hands: 1 | 2;
   /** how to make it */
   hand: string;
   /** what the robot does */
@@ -22,25 +25,25 @@ export interface SignSpec {
   /** how many of the last WINDOW frames must agree before it fires */
   need: number;
   cooldownMs: number;
+  /** one-hand score; two-hand signs score through `pair` instead */
   score(f: ExtractedFeatures): number;
+  pair?(a: ExtractedFeatures, b: ExtractedFeatures): number;
 }
 
 /** frames of history the stabilizer votes over (about a quarter second at 30 fps) */
 export const WINDOW = 8;
 
 const ext = (f: ExtractedFeatures, k: Finger) => 1 - smooth(f.bend[k], 65, 120);
-/** looser: a cupped "give me" hand still counts as open */
-const openish = (f: ExtractedFeatures, k: Finger) => 1 - smooth(f.bend[k], 95, 150);
 const cur = (f: ExtractedFeatures, k: Finger) => smooth(f.bend[k], 95, 150);
 const fingersOpen = (f: ExtractedFeatures) => Math.min(ext(f, 'index'), ext(f, 'middle'), ext(f, 'ring'), ext(f, 'pinky'));
-const fingersOpenish = (f: ExtractedFeatures) => Math.min(openish(f, 'index'), openish(f, 'middle'), openish(f, 'ring'), openish(f, 'pinky'));
 const fingersCurled = (f: ExtractedFeatures) => Math.min(cur(f, 'index'), cur(f, 'middle'), cur(f, 'ring'), cur(f, 'pinky'));
 const thumbExt = (f: ExtractedFeatures) => 1 - smooth(f.thumb.bend, 60, 110);
-const pinched = (f: ExtractedFeatures) => 1 - smooth(f.touch['thumb-index'], 0.3, 0.5);
-/** palm or back of the hand squarely toward the lens; either side counts, so handedness cannot break STOP */
+/** palm or back of the hand squarely toward the lens; either side counts, so handedness cannot break it */
 const flatToCamera = (f: ExtractedFeatures) => smooth(Math.abs(f.palmNormal.z), 0.12, 0.45);
-/** palm facing the ceiling (MediaPipe's world y points down, so an upward normal is negative y) */
-const palmUp = (f: ExtractedFeatures) => smooth(-f.palmNormal.y, 0.3, 0.65);
+/** one open hand facing the lens: the STOP shape */
+export const openHand = (f: ExtractedFeatures) => fingersOpen(f) * flatToCamera(f);
+/** the index points roughly at the ceiling (pointing.angle is 0 up, 90 right, 180 down) */
+const indexUp = (f: ExtractedFeatures) => 1 - smooth(Math.min(f.pointing.angle, 360 - f.pointing.angle), 40, 75);
 
 /**
  * Thumbs up, from geometry rather than a learned score: the thumb is straight, runs up the palm
@@ -55,20 +58,21 @@ export function thumbUp(f: ExtractedFeatures): number {
 
 export const SIGNS: readonly SignSpec[] = [
   {
-    name: 'STOP', label: 'STOP', emoji: '✋', hand: 'flat hand toward the camera', robot: 'freezes, light red, needs GO', need: 3, cooldownMs: 1200,
-    score: (f) => fingersOpen(f) * flatToCamera(f),
+    name: 'STOP', label: 'STOP', emoji: '✋', hands: 1, hand: 'one flat hand toward the camera', robot: 'freezes, light red, needs GO', need: 3, cooldownMs: 1200,
+    score: openHand,
   },
   {
-    name: 'GO', label: 'GO', emoji: '👍', hand: 'thumbs up', robot: 'resumes', need: 5, cooldownMs: 1200,
+    name: 'GO', label: 'GO', emoji: '👍', hands: 1, hand: 'thumbs up', robot: 'resumes', need: 5, cooldownMs: 1200,
     score: (f) => fingersCurled(f) * thumbUp(f),
   },
   {
-    name: 'SLOW', label: 'SLOW', emoji: '🤏', hand: 'thumb and index pinched', robot: 'runs at a third of its speed', need: 5, cooldownMs: 1200,
-    score: (f) => pinched(f) * (1 - 0.6 * ext(f, 'index')),
+    name: 'SLOW', label: 'SLOW', emoji: '🙌', hands: 2, hand: 'both hands up, open, toward the camera', robot: 'runs at a third of its speed', need: 5, cooldownMs: 1200,
+    score: () => 0,
+    pair: (a, b) => Math.min(openHand(a), openHand(b)),
   },
   {
-    name: 'GIVE', label: 'GIVE ME', emoji: '🫴', hand: 'open palm facing up', robot: 'brings you the next part and holds it out', need: 5, cooldownMs: 2500,
-    score: (f) => fingersOpenish(f) * palmUp(f) * (1 - pinched(f)),
+    name: 'GIVE', label: 'GIVE ME', emoji: '☝️', hands: 1, hand: 'one finger up, like "one, please"', robot: 'brings you the next part and holds it out', need: 5, cooldownMs: 2500,
+    score: (f) => ext(f, 'index') * Math.min(cur(f, 'middle'), cur(f, 'ring'), cur(f, 'pinky')) * indexUp(f),
   },
 ];
 
@@ -81,16 +85,24 @@ export interface Classification {
   scores: Record<SignName, number>;
 }
 
-export function classify(f: ExtractedFeatures, minScore = 0.45, margin = 0.1): Classification {
-  const scores = {} as Record<SignName, number>;
-  let best: SignSpec = SIGNS[0], bs = -1, second = -1;
+/**
+ * Classify what is in view: one or two hands. A one-hand sign counts from whichever hand makes it
+ * best. Two open hands are SLOW and outrank the STOP each of them would score alone.
+ */
+export function classify(hands: ExtractedFeatures[], minScore = 0.45, margin = 0.1): Classification {
+  const scores: Record<SignName, number> = { STOP: 0, GO: 0, SLOW: 0, GIVE: 0 };
   for (const s of SIGNS) {
-    const v = s.score(f);
-    scores[s.name] = v;
-    if (v > bs) { second = bs; bs = v; best = s; } else if (v > second) second = v;
+    if (s.hands === 2) { if (hands.length >= 2 && s.pair) scores[s.name] = s.pair(hands[0], hands[1]); }
+    else for (const h of hands) scores[s.name] = Math.max(scores[s.name], s.score(h));
+  }
+  if (scores.SLOW >= minScore) scores.STOP *= 1 - scores.SLOW;
+  let best: SignName = 'STOP', bs = -1, second = -1;
+  for (const s of SIGNS) {
+    const v = scores[s.name];
+    if (v > bs) { second = bs; bs = v; best = s.name; } else if (v > second) second = v;
   }
   const confident = bs >= minScore && bs - second >= margin;
-  return { name: confident ? best.name : null, best: best.name, score: bs, scores };
+  return { name: confident ? best : null, best, score: bs, scores };
 }
 
 export const SPEC: Record<SignName, SignSpec> = Object.fromEntries(SIGNS.map((s) => [s.name, s])) as Record<SignName, SignSpec>;

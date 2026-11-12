@@ -46,11 +46,10 @@ export class SignRecognizer {
   private stab = new Stabilizer();
 
   update(frames: HandFrame[], nowMs: number): SignFrame {
-    const f = frames[0];
-    if (!f) return { ...this.stab.update(null, nowMs), score: 0, scores: {}, nearest: null, features: null };
-    const feats = extractFeatures(f);
+    if (!frames.length) return { ...this.stab.update(null, nowMs), score: 0, scores: {}, nearest: null, features: null };
+    const feats = frames.slice(0, 2).map(extractFeatures);
     const c = classify(feats);
     const st = this.stab.update(c.name, nowMs);
-    return { ...st, score: c.score, scores: c.scores, nearest: { name: c.best, score: c.score }, features: feats };
+    return { ...st, score: c.score, scores: c.scores, nearest: { name: c.best, score: c.score }, features: feats[0] };
   }
 }
